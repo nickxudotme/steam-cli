@@ -17,7 +17,8 @@ var searchCmd = &cobra.Command{
 	Use:     "search TERM",
 	Aliases: []string{"find", "lookup"},
 	Short:   "Search Steam store games",
-	Args:    cobra.ExactArgs(1),
+	Example: "  steam-cli search \"elden ring\"\n  steam-cli search portal --count 5\n  steam-cli app 1245620",
+	Args:    exactArgsWithExample(1, "steam-cli search TERM [--count N]", "steam-cli search portal --count 5"),
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
 		items, err := client().Search(args[0], searchCount)
 		if err != nil {
@@ -33,6 +34,10 @@ var searchCmd = &cobra.Command{
 			return nil
 		}
 		rows := make([][]string, 0, len(items))
+		if len(items) == 0 {
+			fmt.Println(ui.Muted.Render(i18n.T("message.no_results")))
+			return nil
+		}
 		for _, item := range items {
 			rows = append(rows, []string{
 				strconv.Itoa(item.ID),

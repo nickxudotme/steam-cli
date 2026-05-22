@@ -20,7 +20,8 @@ var priceCmd = &cobra.Command{
 	Use:     "price APPID",
 	Aliases: []string{"prices"},
 	Short:   "Show price for a Steam app",
-	Args:    cobra.ExactArgs(1),
+	Example: "  steam-cli search \"subnautica\"\n  steam-cli price 264710\n  steam-cli price 264710 --compare CN,US,JP",
+	Args:    exactArgsWithExample(1, "steam-cli price APPID", "steam-cli price 264710 --compare CN,US"),
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
 		appid, err := parseAppID(args[0])
 		if err != nil {

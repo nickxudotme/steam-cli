@@ -27,6 +27,9 @@ var localesCmd = &cobra.Command{
 	Use:   "locales",
 	Short: "List common --cc regions and --lang Steam languages",
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
+		if err := validateEnumFlag("type", localesOpts.kind, "all", "regions", "languages"); err != nil {
+			return nil, err
+		}
 		data := steam.LocaleOptionsData()
 		payload := localesPayload{
 			Sources: map[string]string{
@@ -61,9 +64,8 @@ var localesCmd = &cobra.Command{
 		case "languages":
 			payload.Languages = data.Languages
 			return payload, nil
-		default:
-			return nil, fmt.Errorf("invalid locales type %q; expected all, regions, or languages", localesOpts.kind)
 		}
+		return payload, nil
 	}, func(value any) error {
 		data, ok := value.(localesPayload)
 		if !ok {

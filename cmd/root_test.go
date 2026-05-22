@@ -82,6 +82,33 @@ func TestRetryNoticeFormatsRateLimit(t *testing.T) {
 	}
 }
 
+func TestValidateEnumFlagRejectsUnknownValue(t *testing.T) {
+	err := validateEnumFlag("filter", "nonsense", "specials", "topsellers")
+	if err == nil {
+		t.Fatal("expected invalid enum error")
+	}
+	if steam.CodeOf(err) != steam.CodeInvalidInput {
+		t.Fatalf("expected CodeInvalidInput, got %s", steam.CodeOf(err))
+	}
+	if !strings.Contains(err.Error(), "specials, topsellers") {
+		t.Fatalf("expected allowed values in error, got %q", err.Error())
+	}
+}
+
+func TestExactArgsWithExample(t *testing.T) {
+	cmd := rootCmd
+	err := exactArgsWithExample(1, "steam-cli search TERM", "steam-cli search portal")(cmd, nil)
+	if err == nil {
+		t.Fatal("expected arg error")
+	}
+	if steam.CodeOf(err) != steam.CodeInvalidInput {
+		t.Fatalf("expected CodeInvalidInput, got %s", steam.CodeOf(err))
+	}
+	if !strings.Contains(err.Error(), "Usage:") || !strings.Contains(err.Error(), "Example:") {
+		t.Fatalf("expected usage and example in error, got %q", err.Error())
+	}
+}
+
 func TestParseAppIDValid(t *testing.T) {
 	got, err := parseAppID(" 264710 ")
 	if err != nil {

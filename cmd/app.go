@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"steam-cli/internal/i18n"
 	"steam-cli/internal/steam"
 	"steam-cli/internal/ui"
 
@@ -18,7 +19,8 @@ var appCmd = &cobra.Command{
 	Use:     "app APPID",
 	Aliases: []string{"game", "info"},
 	Short:   "Show public info for a Steam app",
-	Args:    cobra.ExactArgs(1),
+	Example: "  steam-cli search \"subnautica\"\n  steam-cli app 264710\n  steam-cli app 264710 --news 0 --json",
+	Args:    exactArgsWithExample(1, "steam-cli app APPID", "steam-cli app 264710"),
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
 		appid, err := parseAppID(args[0])
 		if err != nil {
@@ -38,7 +40,7 @@ var appCmd = &cobra.Command{
 		fmt.Println(ui.Title.Render(fmt.Sprintf("%s (%d)", details.Name, appid)))
 		fmt.Println()
 		fmt.Println(ui.Table(
-			[]string{"Type", "Release", "Free", "Players Now", "Metacritic", "Deck"},
+			[]string{i18n.T("table.type"), i18n.T("table.release"), i18n.T("table.free"), i18n.T("table.players_now"), "Metacritic", "Deck"},
 			[][]string{{
 				empty(details.Type),
 				empty(details.ReleaseDate.Date),
@@ -49,17 +51,17 @@ var appCmd = &cobra.Command{
 			}},
 		))
 		fmt.Println()
-		fmt.Println(ui.KeyValue("Price", priceDetail(details)))
+		fmt.Println(ui.KeyValue(i18n.T("table.price"), priceDetail(details)))
 		if text := discountEndText(bundle.StoreItem); text != "" {
-			fmt.Println(ui.KeyValue("Discount ends", text))
+			fmt.Println(ui.KeyValue(i18n.T("table.discount_ends"), text))
 		}
 		if details.ShortDescription != "" {
 			fmt.Println()
-			fmt.Println(ui.KeyValue("Summary", details.ShortDescription))
+			fmt.Println(ui.KeyValue(i18n.T("table.summary"), details.ShortDescription))
 		}
 		fmt.Println()
 		fmt.Println(ui.Table(
-			[]string{"Store Reviews", "App Reviews", "Positive", "Negative", "Total", "Recommendations", "Achievements"},
+			[]string{i18n.T("table.store_reviews"), i18n.T("table.app_reviews"), i18n.T("table.positive"), i18n.T("table.negative"), i18n.T("table.total"), i18n.T("table.recommendations"), i18n.T("table.achievements")},
 			[][]string{{
 				storeReviewText(storeReviews(bundle.StoreItem)),
 				reviewScoreText(bundle.Reviews),
@@ -71,29 +73,29 @@ var appCmd = &cobra.Command{
 			}},
 		))
 		fmt.Println()
-		fmt.Println(ui.Section("Store profile"))
-		fmt.Println(ui.KeyValue("Developers", ui.Join(details.Developers)))
-		fmt.Println(ui.KeyValue("Publishers", ui.Join(details.Publishers)))
-		fmt.Println(ui.KeyValue("Genres", namedValues(details.Genres)))
-		fmt.Println(ui.KeyValue("Categories", namedValues(details.Categories)))
-		fmt.Println(ui.KeyValue("Platforms", platformsText(details.Platforms)))
-		fmt.Println(ui.KeyValue("Controller", empty(details.ControllerSupport)))
-		fmt.Println(ui.KeyValue("Required age", empty(string(details.RequiredAge))))
-		fmt.Println(ui.KeyValue("Languages", languageText(details, bundle.StoreItem)))
+		fmt.Println(ui.Section(i18n.T("section.store_profile")))
+		fmt.Println(ui.KeyValue(i18n.T("label.developers"), ui.Join(details.Developers)))
+		fmt.Println(ui.KeyValue(i18n.T("label.publishers"), ui.Join(details.Publishers)))
+		fmt.Println(ui.KeyValue(i18n.T("label.genres"), namedValues(details.Genres)))
+		fmt.Println(ui.KeyValue(i18n.T("label.categories"), namedValues(details.Categories)))
+		fmt.Println(ui.KeyValue(i18n.T("label.platforms"), platformsText(details.Platforms)))
+		fmt.Println(ui.KeyValue(i18n.T("label.controller"), empty(details.ControllerSupport)))
+		fmt.Println(ui.KeyValue(i18n.T("label.required_age"), empty(string(details.RequiredAge))))
+		fmt.Println(ui.KeyValue(i18n.T("label.languages"), languageText(details, bundle.StoreItem)))
 		if bundle.StoreItem != nil {
 			if tags := storeTagsText(bundle.StoreItem.Tags, 8); tags != "-" {
-				fmt.Println(ui.KeyValue("Store tags", tags))
+				fmt.Println(ui.KeyValue(i18n.T("label.store_tags"), tags))
 			}
 			if bundle.StoreItem.GameRating != nil && bundle.StoreItem.GameRating.Rating != "" {
-				fmt.Println(ui.KeyValue("Rating", ratingText(bundle.StoreItem.GameRating)))
+				fmt.Println(ui.KeyValue(i18n.T("label.rating"), ratingText(bundle.StoreItem.GameRating)))
 			}
 		}
 		if len(details.DLC) > 0 {
-			fmt.Println(ui.KeyValue("DLC AppIDs", intSliceText(details.DLC)))
+			fmt.Println(ui.KeyValue(i18n.T("label.dlc_appids"), intSliceText(details.DLC)))
 		}
 		if bundle.StoreItem != nil && len(bundle.StoreItem.PurchaseOptions) > 0 {
 			fmt.Println()
-			fmt.Println(ui.Section("Purchase options"))
+			fmt.Println(ui.Section(i18n.T("section.purchase_options")))
 			rows := make([][]string, 0, len(bundle.StoreItem.PurchaseOptions))
 			for _, option := range bundle.StoreItem.PurchaseOptions {
 				rows = append(rows, []string{
@@ -105,34 +107,34 @@ var appCmd = &cobra.Command{
 					purchaseOptionDiscountEndText(option),
 				})
 			}
-			fmt.Println(ui.Table([]string{"ID", "Option", "Original", "Final", "Discount", "Ends"}, rows))
+			fmt.Println(ui.Table([]string{"ID", i18n.T("table.option"), i18n.T("table.original"), i18n.T("table.final"), i18n.T("table.discount"), i18n.T("table.ends")}, rows))
 		}
 		if len(details.Screenshots) > 0 || len(details.Movies) > 0 {
 			fmt.Println()
-			fmt.Println(ui.Section("Media"))
-			fmt.Printf("Screenshots: %d\n", len(details.Screenshots))
+			fmt.Println(ui.Section(i18n.T("section.media")))
+			fmt.Printf("%s: %d\n", i18n.T("label.screenshots"), len(details.Screenshots))
 			if len(details.Screenshots) > 0 {
-				fmt.Println("First screenshot: " + details.Screenshots[0].PathFull)
+				fmt.Println(i18n.T("label.first_screenshot") + ": " + details.Screenshots[0].PathFull)
 			}
-			fmt.Printf("Movies: %d\n", len(details.Movies))
+			fmt.Printf("%s: %d\n", i18n.T("label.movies"), len(details.Movies))
 			if len(details.Movies) > 0 {
-				fmt.Println("First movie: " + details.Movies[0].Name)
+				fmt.Println(i18n.T("label.first_movie") + ": " + details.Movies[0].Name)
 			}
 		}
 		if details.SupportInfo.URL != "" || details.SupportInfo.Email != "" {
 			fmt.Println()
-			fmt.Println(ui.Section("Support"))
+			fmt.Println(ui.Section(i18n.T("section.support")))
 			if details.SupportInfo.URL != "" {
-				fmt.Println("URL: " + details.SupportInfo.URL)
+				fmt.Println(i18n.T("label.url") + ": " + details.SupportInfo.URL)
 			}
 			if details.SupportInfo.Email != "" {
-				fmt.Println("Email: " + details.SupportInfo.Email)
+				fmt.Println(i18n.T("label.email") + ": " + details.SupportInfo.Email)
 			}
 		}
 		if bundle.StoreItem != nil && len(bundle.StoreItem.Links) > 0 {
 			fmt.Println()
-			fmt.Println(ui.Section("Official links"))
-			fmt.Println(ui.Table([]string{"Type", "URL"}, storeLinkRows(bundle.StoreItem.Links)))
+			fmt.Println(ui.Section(i18n.T("section.official_links")))
+			fmt.Println(ui.Table([]string{i18n.T("table.type"), "URL"}, storeLinkRows(bundle.StoreItem.Links)))
 		}
 
 		if len(bundle.News) > 0 {
@@ -149,8 +151,8 @@ var appCmd = &cobra.Command{
 				})
 			}
 			fmt.Println()
-			fmt.Println(ui.Section("News"))
-			fmt.Println(ui.Table([]string{"Date", "Title", "Feed"}, rows))
+			fmt.Println(ui.Section(i18n.T("section.news")))
+			fmt.Println(ui.Table([]string{i18n.T("table.date"), i18n.T("table.title"), i18n.T("table.feed")}, rows))
 		}
 		if len(bundle.Warnings) > 0 {
 			fmt.Println()
