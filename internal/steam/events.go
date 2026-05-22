@@ -51,15 +51,28 @@ func (c *Client) Events(query EventQuery) ([]Event, error) {
 	if lang == "" {
 		lang = "english"
 	}
-	body, err := c.GetText(SteamworksUpcomingEvents, url.Values{"l": {lang}})
+	parsed, err := c.steamworksEvents(lang)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch live Steamworks upcoming events: %w", err)
 	}
-	parsed := ParseSteamworksEvents(body)
+	if len(parsed) == 0 && !strings.EqualFold(lang, "english") {
+		parsed, err = c.steamworksEvents("english")
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch live Steamworks upcoming events: %w", err)
+		}
+	}
 	if len(parsed) == 0 {
 		return nil, fmt.Errorf("no live Steamworks events could be parsed from %s", SteamworksUpcomingEvents)
 	}
 	return FilterEvents(parsed, query), nil
+}
+
+func (c *Client) steamworksEvents(lang string) ([]Event, error) {
+	body, err := c.GetText(SteamworksUpcomingEvents, url.Values{"l": {lang}})
+	if err != nil {
+		return nil, err
+	}
+	return ParseSteamworksEvents(body), nil
 }
 
 func FilterEvents(events []Event, query EventQuery) []Event {
@@ -95,7 +108,7 @@ func ParseSteamworksEvents(raw string) []Event {
 	doc := documentationSection(raw)
 
 	events := []Event{}
-	tableRe := regexp.MustCompile(`(?is)<table>(.*?)</table>`)
+	tableRe := regexp.MustCompile(`(?is)<table\b[^>]*>(.*?)</table>`)
 	tableRanges := tableRe.FindAllStringSubmatchIndex(doc, -1)
 	if len(tableRanges) == 0 {
 		events = append(events, parseHeadingEvents(doc, "seasonal", sectionDescription(doc, false))...)
@@ -142,8 +155,8 @@ func parseHeadingEvents(raw, category, description string) []Event {
 }
 
 func parseFestTables(raw string, tableRanges [][]int, fallbackDescription string) []Event {
-	rowRe := regexp.MustCompile(`(?is)<tr>(.*?)</tr>`)
-	cellRe := regexp.MustCompile(`(?is)<td>(.*?)</td>`)
+	rowRe := regexp.MustCompile(`(?is)<tr\b[^>]*>(.*?)</tr>`)
+	cellRe := regexp.MustCompile(`(?is)<td\b[^>]*>(.*?)</td>`)
 
 	events := []Event{}
 	for _, tableRange := range tableRanges {
@@ -187,18 +200,22 @@ func parseFestTables(raw string, tableRanges [][]int, fallbackDescription string
 }
 
 func parseEventDateRange(value string, defaultYear int) (time.Time, time.Time, bool) {
-	value = cleanDateText(value)
-	if start, end, ok := parseWrittenDateRange(value); ok {
+	raw := value
+	cleaned := cleanDateText(value)
+	if start, end, ok := parseWrittenDateRange(cleaned); ok {
 		return start, end, true
 	}
-	if start, end, ok := parseLocalizedWrittenDateRange(value); ok {
+	if start, end, ok := parseLocalizedWrittenDateRange(cleaned); ok {
 		return start, end, true
 	}
 	if defaultYear > 0 {
-		if start, end, ok := parseFestDateRange(value, defaultYear); ok {
+		if start, end, ok := parseFestDateRange(raw, defaultYear); ok {
 			return start, end, true
 		}
-		if start, end, ok := parseLocalizedMonthDayRange(value, defaultYear); ok {
+		if start, end, ok := parseEnglishMonthDayRange(cleaned, defaultYear); ok {
+			return start, end, true
+		}
+		if start, end, ok := parseLocalizedMonthDayRange(cleaned, defaultYear); ok {
 			return start, end, true
 		}
 	}
@@ -235,7 +252,7 @@ func parseWrittenDateRange(value string) (time.Time, time.Time, bool) {
 }
 
 func parseFestDateRange(raw string, year int) (time.Time, time.Time, bool) {
-	text := cleanText(strings.ReplaceAll(raw, "<br>", " - "))
+	text := cleanText(regexp.MustCompile(`(?i)<br\s*/?>`).ReplaceAllString(raw, " - "))
 	rangeRe := regexp.MustCompile(`(?i)([A-Z][a-z]+)\s+(\d{1,2})\s*-\s*([A-Z][a-z]+)\s+(\d{1,2})`)
 	match := rangeRe.FindStringSubmatch(text)
 	if len(match) != 5 {
@@ -251,6 +268,25 @@ func parseFestDateRange(raw string, year int) (time.Time, time.Time, bool) {
 		endYear++
 	}
 	return dateUTC(year, startMonth, atoi(match[2])), dateUTC(endYear, endMonth, atoi(match[4])), true
+}
+
+func parseEnglishMonthDayRange(value string, year int) (time.Time, time.Time, bool) {
+	text := cleanText(value)
+	dateRe := regexp.MustCompile(`(?i)\b([A-Z][a-z]+)\s+(\d{1,2})\b`)
+	matches := dateRe.FindAllStringSubmatch(text, -1)
+	if len(matches) < 2 {
+		return time.Time{}, time.Time{}, false
+	}
+	startMonth, startOK := months[matches[0][1]]
+	endMonth, endOK := months[matches[1][1]]
+	if !startOK || !endOK {
+		return time.Time{}, time.Time{}, false
+	}
+	endYear := year
+	if endMonth < startMonth {
+		endYear++
+	}
+	return dateUTC(year, startMonth, atoi(matches[0][2])), dateUTC(endYear, endMonth, atoi(matches[1][2])), true
 }
 
 func parseLocalizedWrittenDateRange(value string) (time.Time, time.Time, bool) {
@@ -454,7 +490,7 @@ func dateUTC(year int, month time.Month, day int) time.Time {
 }
 
 func documentationSection(value string) string {
-	re := regexp.MustCompile(`(?is)<div class="documentation_bbcode">(.*?)<div id="hashLocationHighlight">`)
+	re := regexp.MustCompile(`(?is)<div[^>]*class="[^"]*\bdocumentation_bbcode\b[^"]*"[^>]*>(.*?)<div[^>]*id="hashLocationHighlight"`)
 	match := re.FindStringSubmatch(value)
 	if len(match) == 2 {
 		return match[1]
