@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ var opts struct {
 	json    bool
 	quiet   bool
 	noColor bool
+	verbose bool
 	uiLang  string
 	rateMs  int
 }
@@ -91,6 +93,16 @@ func allCommands() []*cobra.Command {
 }
 
 func normalizeOptions() {
+	// Resolve auto-detect for --cc / --lang from system locale on first
+	// call. Subsequent invocations from runCommand() are no-ops because
+	// opts.cc/lang are no longer "auto" / "" by then.
+	if opts.cc == "" || strings.EqualFold(strings.TrimSpace(opts.cc), "auto") {
+		opts.cc = autoDetectCC()
+	}
+	if opts.lang == "" || strings.EqualFold(strings.TrimSpace(opts.lang), "auto") {
+		opts.lang = autoDetectLang()
+	}
+
 	switch strings.ToUpper(strings.TrimSpace(opts.cc)) {
 	case "UK":
 		opts.cc = "GB"
@@ -109,6 +121,24 @@ func normalizeOptions() {
 	opts.uiLang = string(lang)
 }
 
+// autoDetectCC resolves the --cc flag from the system locale. Falls back to
+// "US" when the locale carries no usable region.
+func autoDetectCC() string {
+	if cc := i18n.SteamCCFor(i18n.DetectSystemLocale()); cc != "" {
+		return cc
+	}
+	return "US"
+}
+
+// autoDetectLang resolves the --lang flag from the system locale. Falls back
+// to "english" when no Steam-supported language matches.
+func autoDetectLang() string {
+	if lang := i18n.SteamLangFor(i18n.DetectSystemLocale()); lang != "" {
+		return lang
+	}
+	return "english"
+}
+
 var rootCmd = &cobra.Command{
 	Use:                        "steam-cli",
 	Short:                      i18n.T("root.short"),
@@ -124,12 +154,13 @@ var rootCmd = &cobra.Command{
 func init() {
 	cobra.EnableCommandSorting = false
 
-	rootCmd.PersistentFlags().StringVar(&opts.cc, "cc", "CN", "country/region code for prices; run steam-cli locales --type regions for common values")
-	rootCmd.PersistentFlags().StringVar(&opts.lang, "lang", "schinese", "Steam language; run steam-cli locales --type languages for values")
+	rootCmd.PersistentFlags().StringVar(&opts.cc, "cc", "auto", "country/region code for prices; \"auto\" detects from system locale (default), run steam-cli locales --type regions for explicit values")
+	rootCmd.PersistentFlags().StringVar(&opts.lang, "lang", "auto", "Steam content language; \"auto\" detects from system locale (default), run steam-cli locales --type languages for values")
 	rootCmd.PersistentFlags().IntVar(&opts.timeout, "timeout", 12, "request timeout in seconds")
 	rootCmd.PersistentFlags().BoolVar(&opts.json, "json", false, "print JSON envelope")
 	rootCmd.PersistentFlags().BoolVar(&opts.quiet, "quiet", false, "print only the most important fields for supported commands")
 	rootCmd.PersistentFlags().BoolVar(&opts.noColor, "no-color", false, "disable ANSI color in terminal output")
+	rootCmd.PersistentFlags().BoolVar(&opts.verbose, "verbose", false, "print retry and diagnostic messages to stderr")
 	rootCmd.PersistentFlags().StringVar(&opts.uiLang, "ui-lang", "auto", "Steam CLI interface language: auto, en, zh-CN")
 	rootCmd.PersistentFlags().IntVar(&opts.rateMs, "rate-ms", 0, "minimum milliseconds between requests from a single client; default lets the client be polite without throttling")
 
@@ -147,7 +178,51 @@ func client() *steam.Client {
 	if opts.rateMs > 0 {
 		c.MinInterval = time.Duration(opts.rateMs) * time.Millisecond
 	}
+	attachRetryLogger(c)
 	return c
+}
+
+const longRetryNotice = 2 * time.Second
+
+func attachRetryLogger(c *steam.Client) {
+	if opts.json {
+		return
+	}
+	c.RetryLogger = func(event steam.RetryEvent) {
+		if !opts.verbose && event.Delay < longRetryNotice {
+			return
+		}
+		fmt.Fprintln(os.Stderr, retryNotice(event))
+	}
+}
+
+func retryNotice(event steam.RetryEvent) string {
+	target := endpointHost(event.URL)
+	prefix := "steam-cli:"
+	if event.Status == 429 {
+		return fmt.Sprintf("%s rate limited by %s, retrying in %s (attempt %d/%d)", prefix, target, shortDuration(event.Delay), event.Attempt+1, event.MaxAttempts)
+	}
+	if event.Status > 0 {
+		return fmt.Sprintf("%s %s returned HTTP %d, retrying in %s (attempt %d/%d)", prefix, target, event.Status, shortDuration(event.Delay), event.Attempt+1, event.MaxAttempts)
+	}
+	if event.Err != nil {
+		return fmt.Sprintf("%s request to %s failed, retrying in %s (attempt %d/%d): %v", prefix, target, shortDuration(event.Delay), event.Attempt+1, event.MaxAttempts, event.Err)
+	}
+	return fmt.Sprintf("%s retrying %s in %s (attempt %d/%d)", prefix, target, shortDuration(event.Delay), event.Attempt+1, event.MaxAttempts)
+}
+
+func endpointHost(raw string) string {
+	if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	return raw
+}
+
+func shortDuration(d time.Duration) string {
+	if d >= time.Second {
+		return d.Round(100 * time.Millisecond).String()
+	}
+	return d.Round(time.Millisecond).String()
 }
 
 type commandLoader func(cmd *cobra.Command, args []string) (any, error)

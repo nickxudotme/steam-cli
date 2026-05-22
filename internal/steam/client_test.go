@@ -18,8 +18,8 @@ func TestProfilePath(t *testing.T) {
 		want  string
 	}{
 		{name: "steamid64", input: "76561198115468824", want: "profiles/76561198115468824"},
-		{name: "vanity", input: "notsprog", want: "id/notsprog"},
-		{name: "id url", input: "https://steamcommunity.com/id/notsprog/", want: "id/notsprog"},
+		{name: "custom URL name", input: "nickxudotme", want: "id/nickxudotme"},
+		{name: "id url", input: "https://steamcommunity.com/id/nickxudotme/", want: "id/nickxudotme"},
 		{name: "profile url", input: "https://steamcommunity.com/profiles/76561198115468824/", want: "profiles/76561198115468824"},
 	}
 	for _, tt := range tests {
@@ -175,6 +175,10 @@ func TestRetryOn429HonorsRetryAfter(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
+	var logged []RetryEvent
+	c.RetryLogger = func(event RetryEvent) {
+		logged = append(logged, event)
+	}
 	start := time.Now()
 	if _, err := c.AppDetails(264710); err != nil {
 		t.Fatalf("AppDetails returned error: %v", err)
@@ -187,6 +191,12 @@ func TestRetryOn429HonorsRetryAfter(t *testing.T) {
 	// exponential default. Earlier impl waited Retry-After + base = 3s.
 	if elapsed > 2*time.Second {
 		t.Fatalf("elapsed %s > 2s suggests double-sleep regression", elapsed)
+	}
+	if len(logged) != 1 {
+		t.Fatalf("logged retry events = %d, want 1", len(logged))
+	}
+	if logged[0].Status != http.StatusTooManyRequests || !logged[0].RetryAfter || logged[0].Delay != time.Second {
+		t.Fatalf("unexpected retry event: %#v", logged[0])
 	}
 }
 

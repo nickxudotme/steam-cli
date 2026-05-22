@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +23,7 @@ type jsonMeta struct {
 	Timeout    int          `json:"timeout"`
 	Quiet      bool         `json:"quiet"`
 	NoColor    bool         `json:"no_color"`
+	Verbose    bool         `json:"verbose"`
 	UILang     string       `json:"ui_lang"`
 	ObservedAt string       `json:"observed_at"`
 	Sources    []sourceInfo `json:"sources,omitempty"`
@@ -62,6 +62,7 @@ func responseMetaFor(commandPath string) jsonMeta {
 		Timeout:    opts.timeout,
 		Quiet:      opts.quiet,
 		NoColor:    opts.noColor,
+		Verbose:    opts.verbose,
 		UILang:     opts.uiLang,
 		ObservedAt: time.Now().UTC().Format(time.RFC3339),
 		Sources:    commandSources(commandPath),
@@ -155,6 +156,3 @@ func commandName(commandPath string) string {
 		return name
 	}
 }
-
-// strconv is imported so test files in this package don't need to.
-var _ = strconv.Itoa

@@ -116,7 +116,7 @@ func loadPriceComparison(appid int, compare string) (*priceComparisonResult, err
 		if i > 0 {
 			time.Sleep(150 * time.Millisecond)
 		}
-		regionClient := steam.NewClient(strings.ToUpper(cc), opts.lang, time.Duration(opts.timeout)*time.Second)
+		regionClient := regionalClient(baseClient, cc)
 		item := comparedPrice{CC: strings.ToUpper(cc)}
 		details, err := regionClient.AppDetails(appid)
 		if err != nil {
@@ -136,6 +136,21 @@ func loadPriceComparison(appid int, compare string) (*priceComparisonResult, err
 		result.Prices = append(result.Prices, item)
 	}
 	return result, nil
+}
+
+func regionalClient(base *steam.Client, cc string) *steam.Client {
+	// Do not copy *base: it contains a sync.Mutex used by the rate limiter.
+	// Build a sibling client that shares HTTP transport, endpoint injection,
+	// cache, and throttling settings while changing only the price region.
+	return &steam.Client{
+		CC:          strings.ToUpper(cc),
+		Lang:        base.Lang,
+		HTTPClient:  base.HTTPClient,
+		Endpoints:   base.Endpoints,
+		Cache:       base.Cache,
+		MinInterval: base.MinInterval,
+		RetryLogger: base.RetryLogger,
+	}
 }
 
 func renderPriceComparison(data *priceComparisonResult) {
@@ -219,7 +234,7 @@ func purchaseOptionDiscountEndText(option steam.PurchaseOption) string {
 	if latest == 0 {
 		return "-"
 	}
-	return time.Unix(latest, 0).Format("2006-01-02 15:04")
+	return time.Unix(latest, 0).Format(localTimeFormat)
 }
 
 func discountPctText(value int) string {
@@ -239,13 +254,38 @@ func latestDiscountEnd(discounts []steam.ActiveDiscount) int64 {
 	return latest
 }
 
+// localTimeFormat is the canonical "wall clock + UTC offset" format used by
+// every timestamp Steam CLI shows. "UTC+08:00" is explicit and avoids the
+// abbreviation ambiguity of "MST" / "CST" (CST means China Standard Time on
+// a Shanghai box and Central Standard Time on a Chicago box).
+const localTimeFormat = "2006-01-02 15:04 UTC-07:00"
+
+// formatDiscountEnd renders a Unix timestamp in the user's local time first,
+// then in UTC and Pacific Time inside parentheses. PT is included because
+// Steam schedules sales by Pacific Time. UTC and PT lines are suppressed
+// when they would duplicate the local rendering (e.g. UTC system, PT system).
 func formatDiscountEnd(latest int64) string {
-	local := time.Unix(latest, 0).Format("2006-01-02 15:04 MST")
-	utc := time.Unix(latest, 0).UTC().Format("2006-01-02 15:04 UTC")
-	ptLocation, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		return fmt.Sprintf("%s (%s)", local, utc)
+	return formatDiscountEndIn(latest, time.Local)
+}
+
+func formatDiscountEndIn(latest int64, loc *time.Location) string {
+	t := time.Unix(latest, 0).In(loc)
+	local := t.Format(localTimeFormat)
+
+	parts := make([]string, 0, 2)
+	_, localOffset := t.Zone()
+	if localOffset != 0 {
+		parts = append(parts, "UTC "+t.UTC().Format("2006-01-02 15:04"))
 	}
-	pt := time.Unix(latest, 0).In(ptLocation).Format("2006-01-02 15:04 MST")
-	return fmt.Sprintf("%s (%s, %s)", local, utc, pt)
+	if pt, err := time.LoadLocation("America/Los_Angeles"); err == nil {
+		ptTime := t.In(pt)
+		_, ptOffset := ptTime.Zone()
+		if localOffset != ptOffset {
+			parts = append(parts, "PT "+ptTime.Format("2006-01-02 15:04"))
+		}
+	}
+	if len(parts) == 0 {
+		return local
+	}
+	return fmt.Sprintf("%s (%s)", local, strings.Join(parts, ", "))
 }

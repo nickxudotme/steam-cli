@@ -89,6 +89,7 @@ func runDoctor() *doctorResult {
 	// behavior as real commands. We disable cache to avoid masking failures.
 	c := steam.NewClient(cc, opts.lang, time.Duration(opts.timeout)*time.Second)
 	c.Cache = steam.NewCache()
+	attachRetryLogger(c)
 
 	for _, raw := range checks {
 		check := doctorCheck{Name: raw.Name, URL: raw.URL}

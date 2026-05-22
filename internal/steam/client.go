@@ -60,8 +60,23 @@ type Client struct {
 	// to avoid 429s without hard-coding sleeps in business code.
 	MinInterval time.Duration
 
+	// RetryLogger is called before sleeping for a retry. CLI callers use this
+	// for stderr diagnostics; library callers can leave it nil for silence.
+	RetryLogger func(RetryEvent)
+
 	rateMu  sync.Mutex
 	lastReq time.Time
+}
+
+// RetryEvent describes a retry wait that is about to happen.
+type RetryEvent struct {
+	URL         string
+	Status      int
+	Err         error
+	Attempt     int
+	MaxAttempts int
+	Delay       time.Duration
+	RetryAfter  bool
 }
 
 // NewClient returns a Client ready to talk to the live Steam endpoints.
@@ -414,6 +429,7 @@ func (c *Client) ProbeRegions(appid int, regions []RegionOption) (*RegionProbeRe
 			Endpoints:   c.Endpoints,
 			Cache:       c.Cache,
 			MinInterval: c.MinInterval,
+			RetryLogger: c.RetryLogger,
 		}
 		details, err := regionClient.AppDetails(appid)
 		if err != nil {
@@ -720,7 +736,7 @@ func (c *Client) steamID64(input string) (string, error) {
 
 var (
 	steamID64Re = regexp.MustCompile(`^\d{17}$`)
-	vanityRe    = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	customURLRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
 func profilePath(input string) (string, error) {
@@ -743,10 +759,10 @@ func profilePath(input string) (string, error) {
 	if steamID64Re.MatchString(value) {
 		return "profiles/" + value, nil
 	}
-	if vanityRe.MatchString(value) {
+	if customURLRe.MatchString(value) {
 		return "id/" + value, nil
 	}
-	return "", newInvalidProfileInput("expected SteamID64, vanity name, or steamcommunity profile URL")
+	return "", newInvalidProfileInput("expected SteamID64, custom URL name, or steamcommunity profile URL")
 }
 
 // --- HTTP plumbing ----------------------------------------------------------
@@ -825,7 +841,15 @@ func (c *Client) getText(endpoint string, params url.Values, userAgent string) (
 			if attempt == policy.maxAttempts-1 {
 				return "", wrapNetwork(err, endpoint)
 			}
-			time.Sleep(backoffFor(attempt, policy.defaultBackoff))
+			delay := backoffFor(attempt, policy.defaultBackoff)
+			c.logRetry(RetryEvent{
+				URL:         endpoint,
+				Err:         err,
+				Attempt:     attempt + 1,
+				MaxAttempts: policy.maxAttempts,
+				Delay:       delay,
+			})
+			time.Sleep(delay)
 			continue
 		}
 
@@ -870,12 +894,26 @@ func (c *Client) getText(endpoint string, params url.Values, userAgent string) (
 		default:
 			delay = backoffFor(attempt, policy.defaultBackoff)
 		}
+		c.logRetry(RetryEvent{
+			URL:         endpoint,
+			Status:      resp.StatusCode,
+			Attempt:     attempt + 1,
+			MaxAttempts: policy.maxAttempts,
+			Delay:       delay,
+			RetryAfter:  retryDelay > 0 && retryDelay <= policy.maxRetryAfterDelay,
+		})
 		time.Sleep(delay)
 	}
 	if lastErr != nil {
 		return "", wrapNetwork(lastErr, endpoint)
 	}
 	return "", &Error{Code: CodeUnknown, Message: fmt.Sprintf("request failed for %s", endpoint)}
+}
+
+func (c *Client) logRetry(event RetryEvent) {
+	if c.RetryLogger != nil {
+		c.RetryLogger(event)
+	}
 }
 
 func backoffFor(attempt int, base time.Duration) time.Duration {

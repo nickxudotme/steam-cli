@@ -10,8 +10,9 @@ import (
 )
 
 var userCmd = &cobra.Command{
-	Use:   "user STEAMID64|VANITY|PROFILE_URL",
+	Use:   "user STEAMID64|CUSTOM_URL|PROFILE_URL",
 	Short: "Show public Steam Community profile information",
+	Long:  "Show public Steam Community profile information. CUSTOM_URL means the public name in steamcommunity.com/id/<name>, not a Steam account login name.",
 	Args:  cobra.ExactArgs(1),
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
 		profile, err := client().UserProfile(args[0])

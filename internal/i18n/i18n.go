@@ -1,13 +1,7 @@
 package i18n
 
 import (
-	"context"
-	"os"
-	"os/exec"
-	"runtime"
 	"strings"
-	"sync"
-	"time"
 )
 
 type Language string
@@ -20,42 +14,23 @@ const (
 
 var current = EN
 
-// detectOnce caches the result of DetectFromEnv() so we don't re-shell out to
-// `defaults` (macOS) or `powershell` (Windows) every single command run.
-// Tests that rely on env-var driven detection should call ResetDetect.
-var (
-	detectOnce sync.Once
-	detected   Language
-)
-
-// ResetDetect clears the auto-detect cache. Tests touching env vars must call
-// it before invoking Set("auto") so the cached result doesn't leak between
-// tests.
-func ResetDetect() {
-	detectOnce = sync.Once{}
-	detected = ""
-}
-
+// Set picks the active UI language. "auto" runs system-locale detection
+// (sync.Once-cached via DetectSystemLocale).
 func Set(value string) Language {
 	lang := Normalize(value)
 	if lang == Auto {
-		lang = detectFromEnvCached()
+		lang = languageFromSystemLocale(DetectSystemLocale())
 	}
 	current = lang
 	return current
-}
-
-func detectFromEnvCached() Language {
-	detectOnce.Do(func() {
-		detected = DetectFromEnv()
-	})
-	return detected
 }
 
 func Current() Language {
 	return current
 }
 
+// Normalize folds common spellings of the supported UI languages into one of
+// Auto / EN / ZhCN. Anything unrecognized maps to Auto so detection can run.
 func Normalize(value string) Language {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "auto":
@@ -69,92 +44,67 @@ func Normalize(value string) Language {
 	}
 }
 
+// DetectFromEnv returns the UI language inferred from the system locale. It's
+// a thin wrapper over DetectSystemLocale; new code should prefer the latter
+// when it needs region/script information too.
 func DetectFromEnv() Language {
-	if lang, ok := detectFromEnvValues(os.Getenv); ok {
-		return lang
-	}
-	if lang, ok := detectFromOS(); ok {
-		return lang
+	return languageFromSystemLocale(DetectSystemLocale())
+}
+
+func languageFromSystemLocale(loc SystemLocale) Language {
+	if loc.Language == "zh" {
+		return ZhCN
 	}
 	return EN
 }
 
+// languageFromLocale parses a single locale string into a UI Language.
+// Returns ok=false for empty / neutral input.
+func languageFromLocale(value string) (Language, bool) {
+	loc, ok := parseLocale(value)
+	if !ok {
+		return "", false
+	}
+	return languageFromSystemLocale(loc), true
+}
+
+// detectFromEnvValues short-circuits on the first non-neutral LC_ env var.
+// Kept for the existing TestDetectFromEnvValuesFallsBackForNeutralLocale.
 func detectFromEnvValues(getenv func(string) string) (Language, bool) {
 	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		if lang, ok := languageFromLocale(getenv(key)); ok {
-			return lang, true
+		if loc, ok := parseLocale(getenv(key)); ok {
+			return languageFromSystemLocale(loc), true
 		}
 	}
 	return "", false
 }
 
-func languageFromLocale(value string) (Language, bool) {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" || isNeutralLocale(value) {
-		return "", false
+// detectFromText pulls a Language out of a noisy multi-line string, e.g.
+// AppleLanguages plist output or /etc/locale.conf contents.
+func detectFromText(value string) (Language, bool) {
+	for _, line := range strings.Split(value, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.Trim(line, `()"',`)
+		if eq := strings.IndexByte(line, '='); eq >= 0 {
+			line = line[eq+1:]
+			line = strings.Trim(line, `"' `)
+		}
+		if loc, ok := parseLocale(line); ok {
+			return languageFromSystemLocale(loc), true
+		}
 	}
-	if isChinese(value) {
-		return ZhCN, true
-	}
-	return EN, true
+	return "", false
 }
 
+// isNeutralLocale recognizes locale identifiers that carry no useful
+// language/region info ("C", "POSIX", "C.UTF-8").
 func isNeutralLocale(value string) bool {
 	value = strings.TrimSpace(strings.ToLower(value))
 	return value == "c" || value == "posix" || strings.HasPrefix(value, "c.")
 }
 
-func detectFromOS() (Language, bool) {
-	switch runtime.GOOS {
-	case "darwin":
-		return detectFromCommand(1500*time.Millisecond, "defaults", "read", "-g", "AppleLanguages")
-	case "windows":
-		if lang, ok := detectFromCommand(2500*time.Millisecond, "powershell", "-NoProfile", "-Command", "(Get-Culture).Name"); ok {
-			return lang, true
-		}
-		return detectFromCommand(2500*time.Millisecond, "powershell", "-NoProfile", "-Command", "(Get-WinSystemLocale).Name")
-	case "linux":
-		for _, path := range []string{"/etc/locale.conf", "/etc/default/locale"} {
-			data, err := os.ReadFile(path)
-			if err == nil {
-				if lang, ok := detectFromText(string(data)); ok {
-					return lang, true
-				}
-			}
-		}
-	}
-	return "", false
-}
-
-func detectFromCommand(timeout time.Duration, name string, args ...string) (Language, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	data, err := exec.CommandContext(ctx, name, args...).Output()
-	if err != nil {
-		return "", false
-	}
-	return detectFromText(string(data))
-}
-
-func detectFromText(value string) (Language, bool) {
-	if isChinese(value) {
-		return ZhCN, true
-	}
-	if strings.TrimSpace(value) == "" {
-		return "", false
-	}
-	return EN, true
-}
-
-func isChinese(value string) bool {
-	value = strings.ToLower(value)
-	return strings.Contains(value, "zh_cn") ||
-		strings.Contains(value, "zh-cn") ||
-		strings.Contains(value, "zh_hans") ||
-		strings.Contains(value, "zh-hans") ||
-		strings.Contains(value, "chinese")
-}
-
+// T looks up an i18n message key. Falls back to the English entry, then to
+// the key itself if neither map has it. TestKeysetParity guards both maps.
 func T(key string) string {
 	if current == ZhCN {
 		if value, ok := zhCN[key]; ok {
@@ -169,13 +119,14 @@ func T(key string) string {
 
 var en = map[string]string{
 	"root.short":                 "Query Steam public store data, prices, reviews, news, and sale events",
-	"flag.cc":                    "country/region code for prices; run steam-cli locales --type regions for common values",
-	"flag.lang":                  "Steam language; run steam-cli locales --type languages for values",
+	"flag.cc":                    "country/region code for prices; \"auto\" detects from system locale (default), run steam-cli locales --type regions for explicit values",
+	"flag.lang":                  "Steam content language; \"auto\" detects from system locale (default), run steam-cli locales --type languages for values",
 	"flag.ui_lang":               "Steam CLI interface language: auto, en, zh-CN",
 	"flag.timeout":               "request timeout in seconds",
 	"flag.json":                  "print JSON envelope",
 	"flag.quiet":                 "print only the most important fields for supported commands",
 	"flag.no_color":              "disable ANSI color in terminal output",
+	"flag.verbose":               "print retry and diagnostic messages to stderr",
 	"flag.rate_ms":               "minimum milliseconds between requests from a single client; default 0 leaves throttling off",
 	"flag.help":                  "help for this command",
 	"flag.version":               "version for steam-cli",
@@ -245,7 +196,7 @@ var en = map[string]string{
 	"hint.invalid_appid":         "Use steam-cli search \"game name\" to find a numeric appid.",
 	"hint.network_timeout":       "Increase --timeout or retry later.",
 	"hint.source_changed":        "Steam may have changed the response shape; try again later or report the command and appid.",
-	"hint.invalid_profile_input": "Use a SteamID64, vanity name, or steamcommunity.com/id/... or /profiles/... URL.",
+	"hint.invalid_profile_input": "Use a SteamID64, custom URL name from steamcommunity.com/id/<name>, or a /profiles/... URL.",
 	"help.usage":                 "Usage:",
 	"help.aliases":               "Aliases:",
 	"help.examples":              "Examples:",
@@ -257,13 +208,14 @@ var en = map[string]string{
 
 var zhCN = map[string]string{
 	"root.short":                 "查询 Steam 公开商店、价格、评价、新闻和活动数据",
-	"flag.cc":                    "价格国家/地区代码；运行 steam-cli locales --type regions 查看常用值",
-	"flag.lang":                  "Steam 内容语言；运行 steam-cli locales --type languages 查看可选值",
+	"flag.cc":                    "价格国家/地区代码;auto 表示从系统区域设置自动推断（默认），运行 steam-cli locales --type regions 查看常用值",
+	"flag.lang":                  "Steam 内容语言;auto 表示从系统区域设置自动推断（默认），运行 steam-cli locales --type languages 查看可选值",
 	"flag.ui_lang":               "Steam CLI 界面语言：auto、en、zh-CN",
 	"flag.timeout":               "请求超时秒数",
 	"flag.json":                  "输出统一 JSON envelope",
 	"flag.quiet":                 "对支持的命令只输出最关键字段",
 	"flag.no_color":              "关闭终端 ANSI 颜色",
+	"flag.verbose":               "把重试和诊断信息输出到 stderr",
 	"flag.rate_ms":               "单个 client 两次请求之间的最小毫秒间隔；默认 0 表示不节流",
 	"flag.help":                  "查看该命令帮助",
 	"flag.version":               "显示 steam-cli 版本",
@@ -333,7 +285,7 @@ var zhCN = map[string]string{
 	"hint.invalid_appid":         "请使用 steam-cli search \"游戏名\" 查找数字 appid。",
 	"hint.network_timeout":       "请增大 --timeout 或稍后重试。",
 	"hint.source_changed":        "Steam 可能调整了响应结构；请稍后重试，或反馈命令和 appid。",
-	"hint.invalid_profile_input": "请使用 SteamID64、个性化名称，或 steamcommunity.com/id/... / /profiles/... URL。",
+	"hint.invalid_profile_input": "请使用 SteamID64、steamcommunity.com/id/<name> 里的自定义 URL 名称，或 /profiles/... URL。",
 	"help.usage":                 "用法：",
 	"help.aliases":               "别名：",
 	"help.examples":              "示例：",

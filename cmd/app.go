@@ -62,10 +62,10 @@ var appCmd = &cobra.Command{
 			[]string{"Store Reviews", "App Reviews", "Positive", "Negative", "Total", "Recommendations", "Achievements"},
 			[][]string{{
 				storeReviewText(storeReviews(bundle.StoreItem)),
-				empty(bundle.Reviews.ReviewScoreDesc),
-				strconv.Itoa(bundle.Reviews.TotalPositive),
-				strconv.Itoa(bundle.Reviews.TotalNegative),
-				strconv.Itoa(bundle.Reviews.TotalReviews),
+				reviewScoreText(bundle.Reviews),
+				reviewCountText(bundle.Reviews, func(r *steam.ReviewSummary) int { return r.TotalPositive }),
+				reviewCountText(bundle.Reviews, func(r *steam.ReviewSummary) int { return r.TotalNegative }),
+				reviewCountText(bundle.Reviews, func(r *steam.ReviewSummary) int { return r.TotalReviews }),
 				recommendationsText(details.Recommendations),
 				achievementsText(details.Achievements),
 			}},
@@ -193,6 +193,20 @@ func storeReviews(item *steam.StoreItem) *steam.StoreReviews {
 		return nil
 	}
 	return item.Reviews
+}
+
+func reviewScoreText(summary *steam.ReviewSummary) string {
+	if summary == nil {
+		return "-"
+	}
+	return empty(summary.ReviewScoreDesc)
+}
+
+func reviewCountText(summary *steam.ReviewSummary, pick func(*steam.ReviewSummary) int) string {
+	if summary == nil {
+		return "-"
+	}
+	return strconv.Itoa(pick(summary))
 }
 
 func deckText(item *steam.StoreItem) string {

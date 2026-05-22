@@ -28,6 +28,7 @@ func localizeCommands() {
 	setFlagUsage(rootCmd, "json", i18n.T("flag.json"))
 	setFlagUsage(rootCmd, "quiet", i18n.T("flag.quiet"))
 	setFlagUsage(rootCmd, "no-color", i18n.T("flag.no_color"))
+	setFlagUsage(rootCmd, "verbose", i18n.T("flag.verbose"))
 	setFlagUsage(rootCmd, "rate-ms", i18n.T("flag.rate_ms"))
 	setFlagUsage(rootCmd, "version", i18n.T("flag.version"))
 

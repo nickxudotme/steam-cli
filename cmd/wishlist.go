@@ -17,8 +17,9 @@ var wishlistOpts struct {
 }
 
 var wishlistCmd = &cobra.Command{
-	Use:   "wishlist STEAMID64|VANITY|PROFILE_URL",
+	Use:   "wishlist STEAMID64|CUSTOM_URL|PROFILE_URL",
 	Short: "Show a public Steam user's wishlist",
+	Long:  "Show a public Steam user's wishlist. CUSTOM_URL means the public name in steamcommunity.com/id/<name>, not a Steam account login name.",
 	Args:  cobra.ExactArgs(1),
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
 		list, err := client().WishlistWithDetails(args[0], wishlistOpts.offset, wishlistOpts.count, !wishlistOpts.noDetails)
