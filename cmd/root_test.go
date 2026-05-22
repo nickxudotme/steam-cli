@@ -185,3 +185,22 @@ func TestNormalizeOptionsExplicitOverride(t *testing.T) {
 		t.Fatalf("opts.lang = %q, want german (no auto override)", opts.lang)
 	}
 }
+
+func TestDoctorChecksUseContentLanguage(t *testing.T) {
+	checks := doctorChecks("CN", "schinese")
+	foundEvents := false
+	for _, check := range checks {
+		if strings.Contains(check.URL, "l=english") {
+			t.Fatalf("doctor check %q still uses English URL: %s", check.Name, check.URL)
+		}
+		if check.Name == "Steamworks Events" {
+			foundEvents = true
+			if !strings.Contains(check.URL, "l=schinese") {
+				t.Fatalf("Steamworks Events URL = %s, want schinese language", check.URL)
+			}
+		}
+	}
+	if !foundEvents {
+		t.Fatal("Steamworks Events doctor check not found")
+	}
+}

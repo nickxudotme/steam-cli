@@ -47,7 +47,11 @@ var months = map[string]time.Month{
 }
 
 func (c *Client) Events(query EventQuery) ([]Event, error) {
-	body, err := c.GetText(SteamworksUpcomingEvents, url.Values{"l": {"english"}})
+	lang := strings.TrimSpace(c.Lang)
+	if lang == "" {
+		lang = "english"
+	}
+	body, err := c.GetText(SteamworksUpcomingEvents, url.Values{"l": {lang}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch live Steamworks upcoming events: %w", err)
 	}
@@ -91,13 +95,23 @@ func ParseSteamworksEvents(raw string) []Event {
 	doc := documentationSection(raw)
 
 	events := []Event{}
-	events = append(events, parseHeadingEvents(doc, "seasonal")...)
-	events = append(events, parseFestTable(doc)...)
-	events = append(events, parseHeadingEvents(doc, "next_fest")...)
+	tableRe := regexp.MustCompile(`(?is)<table>(.*?)</table>`)
+	tableRanges := tableRe.FindAllStringSubmatchIndex(doc, -1)
+	if len(tableRanges) == 0 {
+		events = append(events, parseHeadingEvents(doc, "seasonal", sectionDescription(doc, false))...)
+		return dedupeEvents(events)
+	}
+
+	firstTable := tableRanges[0]
+	seasonalSegment := doc[:firstTable[0]]
+	nextFestSegment := doc[firstTable[1]:]
+	events = append(events, parseHeadingEvents(seasonalSegment, "seasonal", sectionDescription(seasonalSegment, false))...)
+	events = append(events, parseFestTables(doc, tableRanges, sectionDescription(seasonalSegment, true))...)
+	events = append(events, parseHeadingEvents(nextFestSegment, "next_fest", sectionDescription(nextFestSegment, false))...)
 	return dedupeEvents(events)
 }
 
-func parseHeadingEvents(raw, category string) []Event {
+func parseHeadingEvents(raw, category, description string) []Event {
 	headingRe := regexp.MustCompile(`(?is)<h2[^>]*>(.*?)</h2>`)
 	matches := headingRe.FindAllStringSubmatch(raw, -1)
 
@@ -109,14 +123,8 @@ func parseHeadingEvents(raw, category string) []Event {
 		}
 		parts := strings.SplitN(heading, "|", 2)
 		name := cleanText(parts[0])
-		if category == "seasonal" && !strings.Contains(name, "Sale") {
-			continue
-		}
-		if category == "next_fest" && !strings.Contains(name, "Next Fest") {
-			continue
-		}
-		dateRange := strings.TrimSpace(strings.TrimSuffix(parts[1], "(ENDED)"))
-		start, end, ok := parseWrittenDateRange(dateRange)
+		dateRange := cleanDateText(parts[1])
+		start, end, ok := parseEventDateRange(dateRange, 0)
 		if !ok {
 			continue
 		}
@@ -124,52 +132,77 @@ func parseHeadingEvents(raw, category string) []Event {
 			name = "Steam Next Fest"
 		}
 		event := eventFromDates(name, start, end, category)
-		event.Description = categoryDescription(category)
+		if description != "" {
+			event.Description = description
+		}
 		event.InfoURL = headingInfoURL(raw, match[0])
 		events = append(events, event)
 	}
 	return events
 }
 
-func parseFestTable(raw string) []Event {
-	tableRe := regexp.MustCompile(`(?is)<strong>\s*2026 Fests\s*</strong>.*?<table>(?P<table>.*?)</table>`)
-	tableMatch := tableRe.FindStringSubmatch(raw)
-	if len(tableMatch) < 2 {
-		return nil
-	}
-
+func parseFestTables(raw string, tableRanges [][]int, fallbackDescription string) []Event {
 	rowRe := regexp.MustCompile(`(?is)<tr>(.*?)</tr>`)
 	cellRe := regexp.MustCompile(`(?is)<td>(.*?)</td>`)
-	rows := rowRe.FindAllStringSubmatch(tableMatch[1], -1)
 
-	events := make([]Event, 0, len(rows))
-	for _, row := range rows {
-		cells := cellRe.FindAllStringSubmatch(row[1], -1)
-		if len(cells) < 2 {
+	events := []Event{}
+	for _, tableRange := range tableRanges {
+		if len(tableRange) < 4 {
 			continue
 		}
-		start, end, ok := parseFestDateRange(cells[0][1], 2026)
-		if !ok {
-			continue
-		}
-		event := eventFromDates(cleanText(cells[1][1]), start, end, "fest")
-		if len(cells) > 2 {
-			event.RegistrationURL = firstHref(cells[2][1])
-		}
-		if len(cells) > 3 {
-			event.Notes = cleanText(cells[3][1])
-			event.Description = festDescription(event.Notes)
-			if event.Description != "" {
-				event.Notes = event.Description
+		tableHTML := raw[tableRange[2]:tableRange[3]]
+		year := nearestYearBefore(raw[:tableRange[0]])
+		rows := rowRe.FindAllStringSubmatch(tableHTML, -1)
+		for _, row := range rows {
+			cells := cellRe.FindAllStringSubmatch(row[1], -1)
+			if len(cells) < 2 {
+				continue
 			}
-			event.InfoURL = firstDocHref(cells[3][1])
+			start, end, ok := parseEventDateRange(cells[0][1], year)
+			if !ok {
+				continue
+			}
+			event := eventFromDates(cleanText(cells[1][1]), start, end, "fest")
+			if len(cells) > 2 {
+				event.RegistrationURL = firstHref(cells[2][1])
+			}
+			if len(cells) > 3 {
+				event.Notes = cleanText(cells[3][1])
+				event.Description = festDescription(event.Notes)
+				if event.Description != "" {
+					event.Notes = event.Description
+				}
+				event.InfoURL = firstDocHref(cells[3][1])
+			}
+			if event.Description == "" {
+				event.Description = fallbackDescription
+			}
+			if event.Description == "" {
+				event.Description = categoryDescription(event.Category)
+			}
+			events = append(events, event)
 		}
-		if event.Description == "" {
-			event.Description = categoryDescription("fest")
-		}
-		events = append(events, event)
 	}
 	return events
+}
+
+func parseEventDateRange(value string, defaultYear int) (time.Time, time.Time, bool) {
+	value = cleanDateText(value)
+	if start, end, ok := parseWrittenDateRange(value); ok {
+		return start, end, true
+	}
+	if start, end, ok := parseLocalizedWrittenDateRange(value); ok {
+		return start, end, true
+	}
+	if defaultYear > 0 {
+		if start, end, ok := parseFestDateRange(value, defaultYear); ok {
+			return start, end, true
+		}
+		if start, end, ok := parseLocalizedMonthDayRange(value, defaultYear); ok {
+			return start, end, true
+		}
+	}
+	return time.Time{}, time.Time{}, false
 }
 
 func parseWrittenDateRange(value string) (time.Time, time.Time, bool) {
@@ -220,6 +253,43 @@ func parseFestDateRange(raw string, year int) (time.Time, time.Time, bool) {
 	return dateUTC(year, startMonth, atoi(match[2])), dateUTC(endYear, endMonth, atoi(match[4])), true
 }
 
+func parseLocalizedWrittenDateRange(value string) (time.Time, time.Time, bool) {
+	text := normalizeDateSeparators(cleanText(value))
+	rangeRe := regexp.MustCompile(`(?i)(20\d{2})\s*年?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?\s*-\s*(?:(20\d{2})\s*年?\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日?`)
+	if match := rangeRe.FindStringSubmatch(text); len(match) == 7 {
+		startYear := atoi(match[1])
+		endYear := startYear
+		if match[4] != "" {
+			endYear = atoi(match[4])
+		}
+		return dateUTC(startYear, time.Month(atoi(match[2])), atoi(match[3])), dateUTC(endYear, time.Month(atoi(match[5])), atoi(match[6])), true
+	}
+
+	sameMonthRe := regexp.MustCompile(`(?i)(20\d{2})\s*年?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?\s*-\s*(\d{1,2})\s*日?`)
+	if match := sameMonthRe.FindStringSubmatch(text); len(match) == 5 {
+		year := atoi(match[1])
+		month := time.Month(atoi(match[2]))
+		return dateUTC(year, month, atoi(match[3])), dateUTC(year, month, atoi(match[4])), true
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+func parseLocalizedMonthDayRange(value string, year int) (time.Time, time.Time, bool) {
+	text := normalizeDateSeparators(cleanText(value))
+	dateRe := regexp.MustCompile(`(\d{1,2})\s*月\s*(\d{1,2})\s*日?`)
+	matches := dateRe.FindAllStringSubmatch(text, -1)
+	if len(matches) < 2 {
+		return time.Time{}, time.Time{}, false
+	}
+	startMonth := time.Month(atoi(matches[0][1]))
+	endMonth := time.Month(atoi(matches[1][1]))
+	endYear := year
+	if endMonth < startMonth {
+		endYear++
+	}
+	return dateUTC(year, startMonth, atoi(matches[0][2])), dateUTC(endYear, endMonth, atoi(matches[1][2])), true
+}
+
 func eventFromDates(name string, start, end time.Time, category string) Event {
 	return Event{
 		Name:        name,
@@ -247,11 +317,78 @@ func categoryDescription(category string) string {
 
 func festDescription(notes string) string {
 	notes = strings.TrimSpace(notes)
-	if notes == "" || strings.Contains(notes, "This Fest has ended") {
+	if notes == "" {
 		return ""
 	}
-	notes = regexp.MustCompile(`\s*More info\s*\.\s*$`).ReplaceAllString(notes, "")
+	if ended := endedFestDescription(notes); ended != "" {
+		return ended
+	}
+	notes = regexp.MustCompile(`\s*(More info|更多信息|详细信息|詳細情報)\s*[.。]\s*$`).ReplaceAllString(notes, "")
 	return strings.TrimSpace(notes)
+}
+
+func endedFestDescription(notes string) string {
+	endedPhrases := []string{
+		"This Fest has ended.",
+		"此游戏节已结束。",
+		"このフェスは終了しました。",
+	}
+	for _, phrase := range endedPhrases {
+		if strings.Contains(notes, phrase) {
+			return phrase
+		}
+	}
+	return ""
+}
+
+func sectionDescription(raw string, last bool) string {
+	headingRe := regexp.MustCompile(`(?is)<h2[^>]*class="[^"]*bb_section[^"]*"[^>]*>.*?</h2>`)
+	matches := headingRe.FindAllStringIndex(raw, -1)
+	if len(matches) == 0 {
+		headingRe = regexp.MustCompile(`(?is)<h2[^>]*>.*?</h2>`)
+		matches = headingRe.FindAllStringIndex(raw, -1)
+	}
+	if len(matches) == 0 {
+		return ""
+	}
+	index := 0
+	if last {
+		index = len(matches) - 1
+	}
+	start := matches[index][1]
+	end := len(raw)
+	nextHeadingRe := regexp.MustCompile(`(?is)<h2[^>]*>`)
+	if next := nextHeadingRe.FindStringIndex(raw[start:]); len(next) == 2 {
+		end = start + next[0]
+	}
+	return cleanText(raw[start:end])
+}
+
+func cleanDateText(value string) string {
+	value = cleanText(value)
+	value = regexp.MustCompile(`\([^)]*\)|（[^）]*）`).ReplaceAllString(value, "")
+	return strings.TrimSpace(value)
+}
+
+func normalizeDateSeparators(value string) string {
+	replacer := strings.NewReplacer(
+		"－", "-",
+		"–", "-",
+		"—", "-",
+		"~", "-",
+		"～", "-",
+		"至", "-",
+	)
+	return replacer.Replace(value)
+}
+
+func nearestYearBefore(value string) int {
+	yearRe := regexp.MustCompile(`20\d{2}`)
+	matches := yearRe.FindAllString(value, -1)
+	if len(matches) == 0 {
+		return time.Now().Year()
+	}
+	return atoi(matches[len(matches)-1])
 }
 
 func headingInfoURL(raw string, headingHTML string) string {

@@ -62,10 +62,19 @@ func KeyValue(label string, value string) string {
 }
 
 func Table(headers []string, rows [][]string) string {
+	return renderTable(headers, rows, false)
+}
+
+func TableWithRowBorders(headers []string, rows [][]string) string {
+	return renderTable(headers, rows, true)
+}
+
+func renderTable(headers []string, rows [][]string, borderRows bool) string {
 	t := table.New().
 		Headers(headers...).
 		Rows(rows...).
 		Border(lipgloss.NormalBorder()).
+		BorderRow(borderRows).
 		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("238"))).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {

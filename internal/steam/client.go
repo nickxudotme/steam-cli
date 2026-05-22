@@ -396,7 +396,11 @@ func (c *Client) Search(term string, count int) ([]SearchItem, error) {
 }
 
 func (c *Client) LiveLanguages() ([]LanguageOption, error) {
-	body, err := c.GetText(c.Endpoints.Store+"/", url.Values{"l": {"english"}})
+	lang := strings.TrimSpace(c.Lang)
+	if lang == "" {
+		lang = "english"
+	}
+	body, err := c.GetText(c.Endpoints.Store+"/", url.Values{"l": {lang}})
 	if err != nil {
 		return nil, err
 	}

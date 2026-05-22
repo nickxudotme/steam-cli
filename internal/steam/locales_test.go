@@ -1,6 +1,12 @@
 package steam
 
-import "testing"
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestLanguageOptionsIncludeSteamLanguageCodes(t *testing.T) {
 	want := map[string]bool{
@@ -67,5 +73,29 @@ func TestParseSteamStoreLanguagesHTMLFallsBackToBuiltIn(t *testing.T) {
 	languages := ParseSteamStoreLanguagesHTML("<html></html>")
 	if len(languages) != len(LanguageOptions()) {
 		t.Fatalf("fallback language count = %d, want %d", len(languages), len(LanguageOptions()))
+	}
+}
+
+func TestLiveLanguagesUsesClientLanguage(t *testing.T) {
+	c := NewClient("US", "schinese", time.Second)
+	c.HTTPClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("l"); got != "schinese" {
+			t.Fatalf("language query = %q, want schinese", got)
+		}
+		body := `<a class="popup_menu_item tight" href="?l=schinese" onclick="ChangeLanguage( 'schinese' ); return false;">简体中文</a>`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})
+
+	languages, err := c.LiveLanguages()
+	if err != nil {
+		t.Fatalf("LiveLanguages returned error: %v", err)
+	}
+	if len(languages) < 2 {
+		t.Fatalf("LiveLanguages returned too few options: %#v", languages)
 	}
 }

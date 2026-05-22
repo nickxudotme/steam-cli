@@ -74,16 +74,7 @@ func runDoctor() *doctorResult {
 		UILang:     opts.uiLang,
 		ObservedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	checks := []struct {
-		Name string
-		URL  string
-	}{
-		{Name: "Steam Store", URL: "https://store.steampowered.com/?l=" + opts.lang},
-		{Name: "appdetails", URL: fmt.Sprintf("https://store.steampowered.com/api/appdetails?appids=264710&cc=%s&l=%s", cc, opts.lang)},
-		{Name: "Steam Web API", URL: "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=264710"},
-		{Name: "Steam Community", URL: "https://steamcommunity.com/profiles/76561198115468824/?xml=1"},
-		{Name: "Steamworks Events", URL: "https://partner.steamgames.com/doc/marketing/upcoming_events?l=english"},
-	}
+	checks := doctorChecks(cc, opts.lang)
 
 	// Reuse the same retry/UA-equipped Client so doctor sees the same network
 	// behavior as real commands. We disable cache to avoid masking failures.
@@ -115,6 +106,22 @@ func runDoctor() *doctorResult {
 		result.Checks = append(result.Checks, check)
 	}
 	return result
+}
+
+func doctorChecks(cc, lang string) []struct {
+	Name string
+	URL  string
+} {
+	return []struct {
+		Name string
+		URL  string
+	}{
+		{Name: "Steam Store", URL: "https://store.steampowered.com/?l=" + lang},
+		{Name: "appdetails", URL: fmt.Sprintf("https://store.steampowered.com/api/appdetails?appids=264710&cc=%s&l=%s", cc, lang)},
+		{Name: "Steam Web API", URL: "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=264710"},
+		{Name: "Steam Community", URL: "https://steamcommunity.com/profiles/76561198115468824/?xml=1"},
+		{Name: "Steamworks Events", URL: "https://partner.steamgames.com/doc/marketing/upcoming_events?l=" + lang},
+	}
 }
 
 func splitURL(raw string) (string, url.Values) {
