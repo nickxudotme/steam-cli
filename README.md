@@ -34,15 +34,24 @@ go build -o steam-cli .
 ## Global Flags
 
 ```text
---cc        Country/region code for pricing. Default: CN. Run `steam-cli locales --type regions`.
---lang      Steam language. Default: schinese. Run `steam-cli locales --type languages`.
+--cc        Country/region code for pricing. Default: auto (detected from system locale).
+--lang      Steam language. Default: auto (detected from system locale).
 --timeout   Request timeout in seconds. Default: 12
 --rate-ms   Minimum milliseconds between requests from a single client. Default: 0 (no throttling).
 --json      Print a unified JSON envelope
 --quiet     Print only the most important fields for supported commands
 --no-color  Disable ANSI color
+--verbose   Print retry and diagnostic messages to stderr
 --ui-lang   Steam CLI interface language. Default: auto
 ```
+
+`--cc auto` and `--lang auto` read your system locale, in order:
+
+1. `LC_ALL` / `LC_MESSAGES` / `LC_MONETARY` / `LANG` environment variables.
+2. `defaults read -g AppleLocale` (macOS) / `(Get-Culture).Name` (Windows) / `/etc/locale.conf` (Linux).
+3. Conservative fallback: `--cc US` and `--lang english`.
+
+So `LANG=zh_CN.UTF-8` becomes `--cc CN --lang schinese`; `LANG=ja_JP.UTF-8` becomes `--cc JP --lang japanese`; `LANG=es_MX.UTF-8` becomes `--cc MX --lang latam`. Run `steam-cli doctor` to see what was detected.
 
 `UK` is normalized to `GB` for `--cc`. Common `--lang` aliases like `chinese`, `zh-cn`, `zh-tw`, `korean`, `pt-br` are mapped to their Steam codes (`schinese`, `schinese`, `tchinese`, `koreana`, `brazilian`).
 
@@ -50,9 +59,10 @@ Examples:
 
 ```bash
 ./steam-cli search "cyberpunk 2077"
-./steam-cli price 264710 --cc US --lang english
+./steam-cli price 264710                          # auto-detected region
+./steam-cli price 264710 --cc US                  # force US pricing
 ./steam-cli price 264710 --compare CN,US,JP
-./steam-cli app 264710 --cc CN --lang schinese --json
+./steam-cli app 264710 --json
 ./steam-cli doctor
 ./steam-cli --ui-lang zh-CN search "赛博朋克 2077"
 ./steam-cli locales
@@ -122,7 +132,7 @@ For scripts:
 ### App Overview
 
 ```bash
-./steam-cli app 264710 --cc US --lang english --news 1
+./steam-cli app 264710 --news 1
 ```
 
 Example output:
@@ -137,7 +147,7 @@ Subnautica (264710)
 └──────┴──────────────┴──────┴─────────────┴────────────┴──────────┘
 
 Price: 7.49 USD -75%  original 29.99 USD
-Discount ends: 2026-05-26 01:00 CST (2026-05-25 17:00 UTC, 2026-05-25 10:00 PDT)
+Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 10:00)
 
 Store profile
 Developers: Unknown Worlds Entertainment
@@ -160,7 +170,7 @@ The four sibling lookups (store item, reviews, current player count, news) run c
 ### Price and Discount End Time
 
 ```bash
-./steam-cli price 264710 --cc US --lang english
+./steam-cli price 264710 --cc US
 ```
 
 Example:
@@ -169,7 +179,7 @@ Example:
 Subnautica (264710)
 
 Price: 7.49 USD -75%  original 29.99 USD
-Discount ends: 2026-05-26 01:00 CST (2026-05-25 17:00 UTC, 2026-05-25 10:00 PDT)
+Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 10:00)
 ```
 
 The discount end time comes from `IStoreBrowseService/GetItems` field `active_discounts[].discount_end_date`. Steam's current public response does not expose an authoritative discount start time. A start time can only be inferred from related event windows or observed by tracking price changes over time.
@@ -179,7 +189,7 @@ The discount end time comes from `IStoreBrowseService/GetItems` field `active_di
 ### Media
 
 ```bash
-./steam-cli media 264710 --cc US --lang english
+./steam-cli media 264710
 ./steam-cli media 264710 --probe
 ```
 
@@ -204,7 +214,7 @@ CDN assets
 ### DLC
 
 ```bash
-./steam-cli dlc 264710 --cc US --lang english
+./steam-cli dlc 264710
 ```
 
 Example:
@@ -226,7 +236,7 @@ The public WebAPI form of `IStoreBrowseService/GetDLCForApps` currently returns 
 ### Similar Games
 
 ```bash
-./steam-cli similar 264710 --cc US --lang english --count 5
+./steam-cli similar 264710 --count 5
 ```
 
 Example:
@@ -348,6 +358,7 @@ All commands support `--json`. Successful response:
     "timeout": 12,
     "quiet": false,
     "no_color": false,
+    "verbose": false,
     "observed_at": "2026-05-22T10:00:00Z",
     "sources": [
       {
@@ -440,7 +451,7 @@ Steam CLI uses public, live sources by default and does not require a Steam API 
 | [`https://store.steampowered.com/api/storesearch`][source-storesearch] | Store search |
 | [`https://store.steampowered.com/search/results/`][source-search-results] | Specials, top sellers, new releases, upcoming games |
 | [Official upcoming Steam events/fests][source-steamworks-events] | Official upcoming Steam events/fests |
-| [`https://steamcommunity.com/id/{vanity}/?xml=1`][source-community-id-xml] | Public profile XML |
+| [`https://steamcommunity.com/id/{custom_url}/?xml=1`][source-community-id-xml] | Public profile XML |
 | [`https://steamcommunity.com/profiles/{steamid64}/?xml=1`][source-community-xml] | Public profile XML |
 | [`https://api.steampowered.com/IWishlistService/GetWishlist/v1/`][source-wishlist] | Public wishlist appids, priority, date added |
 | [Steam CDN][source-cdn], e.g. `https://cdn.akamai.steamstatic.com/steam/apps/{appid}/...` | App image assets |
@@ -468,6 +479,8 @@ Caching is in-memory only. Steam CLI does not write persistent cache files. The 
 
 HTTP retries cover `429`, `502`, `503`, and `504`. `Retry-After` is honored when present (capped at 30 seconds — anything longer aborts immediately rather than hanging the CLI). Exponential backoff is used otherwise. Network-level errors retry through the same loop.
 
+In non-JSON mode, waits of 2 seconds or longer print a short retry notice to `stderr` so the CLI does not look stuck. Use `--verbose` to print every retry notice. JSON mode keeps `stdout` as pure JSON and suppresses these retry notices.
+
 Observed headers:
 
 - `IWishlistService/GetWishlist/v1`: normal `200` includes `x-eresult: 1`; no `Retry-After` or `X-RateLimit-*`.
@@ -494,7 +507,7 @@ CI runs `go vet`, `go test -race`, and `go build` on every push (`.github/workfl
 
 Unit tests cover:
 
-- Profile URL / vanity / SteamID64 parsing.
+- Profile URL / custom URL name / SteamID64 parsing.
 - `Retry-After` seconds and HTTP date parsing.
 - Store CDN asset URL construction (absolute, protocol-relative, format placeholders).
 - Store search result HTML parsing.
@@ -507,11 +520,11 @@ Unit tests cover:
 Live commands verified during development:
 
 ```bash
-./steam-cli price 264710 --cc US --lang english
-./steam-cli app 264710 --cc US --lang english --news 1
-./steam-cli media 264710 --cc US --lang english
-./steam-cli dlc 264710 --cc US --lang english
-./steam-cli similar 264710 --cc US --lang english --count 5
+./steam-cli price 264710 --cc US
+./steam-cli app 264710 --news 1
+./steam-cli media 264710
+./steam-cli dlc 264710
+./steam-cli similar 264710 --count 5
 ```
 
 ## Limitations
