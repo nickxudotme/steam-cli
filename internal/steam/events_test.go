@@ -47,6 +47,44 @@ func TestEventsUsesClientLanguage(t *testing.T) {
 	}
 }
 
+func TestEventsFallsBackToEnglishWhenLocalizedPageHasNoEvents(t *testing.T) {
+	c := NewClient("US", "german", time.Second)
+	queries := []string{}
+	c.HTTPClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		lang := req.URL.Query().Get("l")
+		queries = append(queries, lang)
+		body := `<div class="documentation_bbcode">
+			<p>No localized documentation for this language.</p>
+		</div><div id="hashLocationHighlight"></div>`
+		if lang == "english" {
+			body = `<div class="documentation_bbcode">
+				<h2><a name="1"></a>Seasonal Sales</h2>
+				<h2><a name="2"></a>2026 Seasonal Sales</h2>
+				<h2><a name="3"></a>Summer Sale | June 25 - July 9, 2026</h2>
+				<table><tr><th>Event Dates</th><th>Theme</th></tr></table>
+				<h2><a name="9"></a>Next Fest</h2>
+			</div><div id="hashLocationHighlight"></div>`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})
+
+	events, err := c.Events(EventQuery{PastDays: 365, FutureDays: 365})
+	if err != nil {
+		t.Fatalf("Events returned error: %v", err)
+	}
+	if got, want := strings.Join(queries, ","), "german,english"; got != want {
+		t.Fatalf("queries = %q, want %q", got, want)
+	}
+	if len(events) != 1 || events[0].Name != "Summer Sale" {
+		t.Fatalf("fallback events = %#v, want English Summer Sale", events)
+	}
+}
+
 func TestParseSteamworksEventsLocalizedChinese(t *testing.T) {
 	raw := `<div class="documentation_bbcode">
 		<h2 class="bb_section"><a name="1"></a>季节性特卖</h2>
@@ -87,5 +125,43 @@ func TestParseSteamworksEventsLocalizedChinese(t *testing.T) {
 	}
 	if events[3].Description != "关于大海的游戏，无论是在海面之上，还是深潜海底。" {
 		t.Fatalf("localized description = %q", events[3].Description)
+	}
+}
+
+func TestParseSteamworksEventsLocalizedEnglishFests(t *testing.T) {
+	raw := `<div data-panel="doc" class="partner documentation_bbcode">
+		<h2 class="bb_section"><a name="1"></a>Seasonal Sales</h2>
+		<h2 class="bb_subsection"><a name="2"></a>2026 Seasonal Sales</h2>
+		<h2 class="bb_subsection"><a name="3"></a>Summer Sale | June 25 - July 9, 2026</h2>
+		<h2 class="bb_section"><a name="7"></a>Themed Sale Events (Fests)</h2>
+		<h2 class="bb_subsection"><a name="8"></a><strong>2026 Fests</strong></h2>
+		<table class="eventTable">
+			<tr class="header"><th>Event Dates</th><th>Theme</th><th>Registration</th><th>Eligibility &amp; Notes</th></tr>
+			<tr data-event="ocean"><td class="date">May 18<br>May 25</td><td>Ocean Fest</td><td><a href="https://partner.steamgames.com/optin/sale/sale_ocean_2026">Registration details</a></td><td>Games about the ocean, whether above water or below. <a href="https://partner.steamgames.com/doc/marketing/upcoming_events/themed_sales/ocean_2026" class="bb_doclink">More info</a>.</td></tr>
+			<tr data-event="bullet"><td class="date">June 8<br />June 15</td><td>Bullet Fest</td><td><a href="https://partner.steamgames.com/optin/sale/sale_bullet_2026">Registration details</a></td><td>Games where the screen is a chaos of bullets. <a href="https://partner.steamgames.com/doc/marketing/upcoming_events/themed_sales/bullet_2026" class="bb_doclink">More info</a>.</td></tr>
+		</table>
+		<h2 class="bb_section"><a name="9"></a>Next Fest</h2>
+		<h2 class="bb_subsection"><a name="12"></a><strong>Next Fest</strong> | June 15 - June 22, 2026</h2>
+	</div><div class="marker" id="hashLocationHighlight"></div>`
+
+	events := ParseSteamworksEvents(raw)
+	if len(events) != 4 {
+		t.Fatalf("len(ParseSteamworksEvents) = %d, want 4: %#v", len(events), events)
+	}
+
+	assertEvent := func(index int, name, startDate, endDate, category string) {
+		t.Helper()
+		event := events[index]
+		if event.Name != name || event.StartDate != startDate || event.EndDate != endDate || event.Category != category {
+			t.Fatalf("events[%d] = %#v, want name=%q start=%q end=%q category=%q", index, event, name, startDate, endDate, category)
+		}
+	}
+	assertEvent(0, "Summer Sale", "2026-06-25", "2026-07-09", "seasonal")
+	assertEvent(1, "Ocean Fest", "2026-05-18", "2026-05-25", "fest")
+	assertEvent(2, "Bullet Fest", "2026-06-08", "2026-06-15", "fest")
+	assertEvent(3, "Steam Next Fest", "2026-06-15", "2026-06-22", "next_fest")
+
+	if events[1].Description != "Games about the ocean, whether above water or below." {
+		t.Fatalf("english description = %q", events[1].Description)
 	}
 }
