@@ -875,9 +875,13 @@ func mediaAssetsFromStore(cdnBase string, appid int, item *StoreItem) []MediaAss
 		filename string
 	}{
 		{"capsule", "main_capsule", assets.MainCapsule},
-		{"capsule", "small_capsule", assets.SmallCapsule},
+		{"capsule", "main_capsule_2x", assets.MainCapsule2x},
+		{"capsule", "capsule_231x87", assets.SmallCapsule},
+		{"capsule", "capsule_231x87_2x", assets.SmallCapsule2x},
 		{"header", "header", assets.Header},
+		{"header", "header_2x", assets.Header2x},
 		{"capsule", "hero_capsule", assets.HeroCapsule},
+		{"capsule", "hero_capsule_2x", assets.HeroCapsule2x},
 		{"library", "library_600x900", assets.LibraryCapsule},
 		{"library", "library_600x900_2x", assets.LibraryCapsule2x},
 		{"library", "library_hero", assets.LibraryHero},

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -92,16 +93,21 @@ func TestMediaAssetsFromStoreUsesStoreAssets(t *testing.T) {
 		Assets: &StoreAssets{
 			AssetURLFormat:   "steam/apps/1/${FILENAME}?t=9",
 			MainCapsule:      "capsule_616x353.jpg",
+			SmallCapsule:     "capsule_231x87_alt_assets_1_schinese.jpg",
+			SmallCapsule2x:   "capsule_231x87_alt_assets_1_schinese_2x.jpg",
 			LibraryCapsule2x: "library_600x900_2x.jpg",
 			LibraryHero:      "library_hero.jpg",
 		},
 	}
 	got := mediaAssetsFromStore("https://cdn.akamai.steamstatic.com", 1, item)
-	if len(got) != 3 {
-		t.Fatalf("len(mediaAssetsFromStore()) = %d, want 3", len(got))
+	if len(got) != 5 {
+		t.Fatalf("len(mediaAssetsFromStore()) = %d, want 5", len(got))
 	}
-	if got[1].Name != "library_600x900_2x" {
-		t.Fatalf("second asset name = %q", got[1].Name)
+	if got[1].Name != "capsule_231x87" || !strings.Contains(got[1].URL, "capsule_231x87_alt_assets_1_schinese.jpg") {
+		t.Fatalf("small capsule asset = %#v", got[1])
+	}
+	if got[2].Name != "capsule_231x87_2x" || !strings.Contains(got[2].URL, "capsule_231x87_alt_assets_1_schinese_2x.jpg") {
+		t.Fatalf("small capsule 2x asset = %#v", got[2])
 	}
 }
 

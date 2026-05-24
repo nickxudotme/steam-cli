@@ -83,9 +83,13 @@ type StoreItem struct {
 type StoreAssets struct {
 	AssetURLFormat     string `json:"asset_url_format"`
 	MainCapsule        string `json:"main_capsule"`
+	MainCapsule2x      string `json:"main_capsule_2x"`
 	SmallCapsule       string `json:"small_capsule"`
+	SmallCapsule2x     string `json:"small_capsule_2x"`
 	Header             string `json:"header"`
+	Header2x           string `json:"header_2x"`
 	HeroCapsule        string `json:"hero_capsule"`
+	HeroCapsule2x      string `json:"hero_capsule_2x"`
 	LibraryCapsule     string `json:"library_capsule"`
 	LibraryCapsule2x   string `json:"library_capsule_2x"`
 	LibraryHero        string `json:"library_hero"`
