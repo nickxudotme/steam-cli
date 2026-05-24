@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,22 @@ func TestRegionalClientSharesBaseConfiguration(t *testing.T) {
 	}
 	if region.MinInterval != base.MinInterval {
 		t.Fatalf("region.MinInterval = %s, want %s", region.MinInterval, base.MinInterval)
+	}
+}
+
+func TestComparedPriceJSONOmitsFormattedDiscountEndText(t *testing.T) {
+	raw, err := json.Marshal(comparedPrice{
+		CC:              "CN",
+		Available:       true,
+		DiscountEnd:     1779728400,
+		DiscountEndText: "2026-05-26 01:00 UTC+08:00",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal returned error: %v", err)
+	}
+	text := string(raw)
+	if strings.Contains(text, "discount_end_text") || !strings.Contains(text, `"discount_end":1779728400`) {
+		t.Fatalf("json = %s", text)
 	}
 }
 

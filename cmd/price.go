@@ -87,7 +87,7 @@ type comparedPrice struct {
 	Available       bool                 `json:"available"`
 	PriceOverview   *steam.PriceOverview `json:"price_overview,omitempty"`
 	DiscountEnd     int64                `json:"discount_end,omitempty"`
-	DiscountEndText string               `json:"discount_end_text,omitempty"`
+	DiscountEndText string               `json:"-"`
 	Error           string               `json:"error,omitempty"`
 }
 
