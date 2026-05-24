@@ -169,10 +169,12 @@ func TestParseSteamworksEventsLocalizedEnglishFests(t *testing.T) {
 func TestParseSteamStoreSalePage(t *testing.T) {
 	raw := `<html><head>
 		<meta property="og:title" content="2026 年农历新年">
+		<meta property="og:image" content="https://clan.akamai.steamstatic.com/images/39769908/cover.jpg">
 	</head><body>
 		<div id="application_config"
 			data-partnereventstore="[{&quot;event_name&quot;:&quot;Lunar New Year 2026&quot;,&quot;rtime32_start_time&quot;:1770920340,&quot;rtime32_end_time&quot;:1772128800}]"
 			data-groupvanityinfo="[{&quot;group_name&quot;:&quot;蒸汽平台促销&quot;}]"></div>
+		<div class="react_landing_background" style='background-image: url("https://clan.akamai.steamstatic.com/images/39769908/background.jpg");'></div>
 	</body></html>`
 
 	events := ParseSteamStoreSalePage(raw, "https://store.steampowered.com/sale/lny2026")
@@ -192,6 +194,12 @@ func TestParseSteamStoreSalePage(t *testing.T) {
 	}
 	if event.Description != "Steam Store sale page presented by 蒸汽平台促销." {
 		t.Fatalf("description = %q", event.Description)
+	}
+	if event.ImageURL != "https://clan.akamai.steamstatic.com/images/39769908/cover.jpg" {
+		t.Fatalf("image url = %q", event.ImageURL)
+	}
+	if event.BackgroundImageURL != "https://clan.akamai.steamstatic.com/images/39769908/background.jpg" {
+		t.Fatalf("background image url = %q", event.BackgroundImageURL)
 	}
 }
 

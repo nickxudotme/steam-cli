@@ -17,17 +17,19 @@ const SteamStoreSpecials = "https://store.steampowered.com/specials"
 const maxDiscoveredStoreSalePages = 16
 
 type Event struct {
-	Name            string `json:"name"`
-	StartDate       string `json:"start_date"`
-	EndDate         string `json:"end_date"`
-	Status          string `json:"status"`
-	Source          string `json:"source"`
-	Category        string `json:"category"`
-	Timezone        string `json:"timezone"`
-	Description     string `json:"description,omitempty"`
-	Notes           string `json:"notes,omitempty"`
-	RegistrationURL string `json:"registration_url,omitempty"`
-	InfoURL         string `json:"info_url,omitempty"`
+	Name               string `json:"name"`
+	StartDate          string `json:"start_date"`
+	EndDate            string `json:"end_date"`
+	Status             string `json:"status"`
+	Source             string `json:"source"`
+	Category           string `json:"category"`
+	Timezone           string `json:"timezone"`
+	Description        string `json:"description,omitempty"`
+	Notes              string `json:"notes,omitempty"`
+	RegistrationURL    string `json:"registration_url,omitempty"`
+	InfoURL            string `json:"info_url,omitempty"`
+	ImageURL           string `json:"image_url,omitempty"`
+	BackgroundImageURL string `json:"background_image_url,omitempty"`
 }
 
 type EventQuery struct {
@@ -212,6 +214,11 @@ func ParseSteamStoreSalePage(raw, pageURL string) []Event {
 
 	groupName := storeSaleGroupName(raw)
 	title := metaContent(raw, "og:title")
+	imageURL := metaContent(raw, "og:image")
+	if imageURL == "" {
+		imageURL = metaContent(raw, "twitter:image")
+	}
+	backgroundURL := storeSaleBackgroundURL(raw)
 	for _, storeEvent := range storeEvents {
 		if storeEvent.EventName == "" || storeEvent.StartTime == 0 || storeEvent.EndTime == 0 {
 			continue
@@ -222,14 +229,16 @@ func ParseSteamStoreSalePage(raw, pageURL string) []Event {
 		}
 
 		event := Event{
-			Name:        cleanText(name),
-			StartDate:   unixDateInPacific(storeEvent.StartTime),
-			EndDate:     unixDateInPacific(storeEvent.EndTime),
-			Source:      "steam_store",
-			Category:    "store_sale",
-			Timezone:    "PT",
-			Description: "Steam Store sale page.",
-			InfoURL:     pageURL,
+			Name:               cleanText(name),
+			StartDate:          unixDateInPacific(storeEvent.StartTime),
+			EndDate:            unixDateInPacific(storeEvent.EndTime),
+			Source:             "steam_store",
+			Category:           "store_sale",
+			Timezone:           "PT",
+			Description:        "Steam Store sale page.",
+			InfoURL:            pageURL,
+			ImageURL:           imageURL,
+			BackgroundImageURL: backgroundURL,
 		}
 		if groupName != "" {
 			event.Description = "Steam Store sale page presented by " + groupName + "."
@@ -650,6 +659,15 @@ func htmlDataAttr(raw, name string) string {
 func metaContent(raw, property string) string {
 	metaRe := regexp.MustCompile(`(?is)<meta\b[^>]*(?:property|name)=["']` + regexp.QuoteMeta(property) + `["'][^>]*\bcontent=["']([^"']*)["'][^>]*>`)
 	match := metaRe.FindStringSubmatch(raw)
+	if len(match) < 2 {
+		return ""
+	}
+	return cleanText(html.UnescapeString(match[1]))
+}
+
+func storeSaleBackgroundURL(raw string) string {
+	bgRe := regexp.MustCompile(`(?is)class=["'][^"']*\breact_landing_background\b[^"']*["'][^>]*background-image:\s*url\(["']?([^"')]+)["']?\)`)
+	match := bgRe.FindStringSubmatch(raw)
 	if len(match) < 2 {
 		return ""
 	}
