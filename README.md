@@ -335,7 +335,8 @@ User data is read only from public profile XML. Steam CLI does not bypass privac
 ./steam-cli events --past-days 15 --future-days 90
 ```
 
-The events command parses the official Steamworks Upcoming Steam Events page and returns event name, date range, status, type, PT timezone marker, description/eligibility notes, registration link, and more-info link.
+The events command parses the official Steamworks Upcoming Steam Events page plus public Steam Store sale pages (for example Lunar New Year pages) and returns event name, date range, status, type, PT timezone marker, description/eligibility notes, registration link, and more-info link. Use `--store-sales=false` to show only the Steamworks event calendar.
+By default it uses a broad window (`--past-days 365 --future-days 365`) so annual sale pages remain visible after they end; narrow the window with flags when you only want near-term events.
 
 The terminal table shows the 6 most useful columns (Start, End, Status, Category, Event, Description). Use `--json` to see the full payload including `registration_url`, `info_url`, `notes`, and `timezone`.
 
@@ -451,6 +452,7 @@ Steam CLI uses public, live sources by default and does not require a Steam API 
 | [`https://store.steampowered.com/api/storesearch`][source-storesearch] | Store search |
 | [`https://store.steampowered.com/search/results/`][source-search-results] | Specials, top sellers, new releases, upcoming games |
 | [Official upcoming Steam events/fests][source-steamworks-events] | Official upcoming Steam events/fests |
+| [`https://store.steampowered.com/sale/{vanity}`][source-store-sale-pages] | Public Steam Store sale pages, including third-party and regional sale events |
 | [`https://steamcommunity.com/id/{custom_url}/?xml=1`][source-community-id-xml] | Public profile XML |
 | [`https://steamcommunity.com/profiles/{steamid64}/?xml=1`][source-community-xml] | Public profile XML |
 | [`https://api.steampowered.com/IWishlistService/GetWishlist/v1/`][source-wishlist] | Public wishlist appids, priority, date added |
@@ -544,6 +546,7 @@ Live commands verified during development:
 [source-storesearch]: https://store.steampowered.com/api/storesearch?term=subnautica&cc=US&l=english
 [source-search-results]: https://store.steampowered.com/search/results/?query=&start=0&count=10&dynamic_data=&infinite=1&specials=1&cc=US&l=english
 [source-steamworks-events]: https://partner.steamgames.com/doc/marketing/upcoming_events?l=english
+[source-store-sale-pages]: https://store.steampowered.com/sale/lny2026
 [source-webapi-overview]: https://partner.steamgames.com/doc/webapi_overview
 [source-community-id-xml]: https://steamcommunity.com/id/nickxudotme/?xml=1
 [source-community-xml]: https://steamcommunity.com/profiles/76561198115468824/?xml=1

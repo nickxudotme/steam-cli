@@ -16,8 +16,9 @@ import (
 )
 
 var eventOpts struct {
-	pastDays   int
-	futureDays int
+	pastDays          int
+	futureDays        int
+	includeStoreSales bool
 }
 
 var eventsCmd = &cobra.Command{
@@ -26,8 +27,9 @@ var eventsCmd = &cobra.Command{
 	Short:   "List recent and upcoming Steam sale events",
 	RunE: runCommand(func(cmd *cobra.Command, args []string) (any, error) {
 		events, err := client().Events(steam.EventQuery{
-			PastDays:   eventOpts.pastDays,
-			FutureDays: eventOpts.futureDays,
+			PastDays:          eventOpts.pastDays,
+			FutureDays:        eventOpts.futureDays,
+			IncludeStoreSales: eventOpts.includeStoreSales,
 		})
 		if err != nil {
 			return nil, err
@@ -60,12 +62,16 @@ func renderEvents(events []steam.Event) error {
 	fmt.Println(ui.TableWithRowBorders([]string{"Start", "End", "Status", "Category", "Event", "Description"}, rows))
 	fmt.Println()
 	fmt.Println(ui.KeyValue(i18n.T("events.label.official_page"), steam.SteamworksUpcomingEvents))
+	if hasEventSource(events, "steam_store") {
+		fmt.Println(ui.KeyValue(i18n.T("events.label.store_pages"), steam.SteamStoreSpecials))
+	}
 	return nil
 }
 
 func init() {
-	eventsCmd.Flags().IntVar(&eventOpts.pastDays, "past-days", 45, "include events that ended within this many days")
-	eventsCmd.Flags().IntVar(&eventOpts.futureDays, "future-days", 180, "include events starting within this many days")
+	eventsCmd.Flags().IntVar(&eventOpts.pastDays, "past-days", 365, "include events that ended within this many days")
+	eventsCmd.Flags().IntVar(&eventOpts.futureDays, "future-days", 365, "include events starting within this many days")
+	eventsCmd.Flags().BoolVar(&eventOpts.includeStoreSales, "store-sales", true, "include public Steam Store sale pages such as Lunar New Year")
 }
 
 const (
@@ -177,4 +183,13 @@ func wrapEventDescription(value string, width int) string {
 	}
 	flush()
 	return strings.Join(lines, "\n")
+}
+
+func hasEventSource(events []steam.Event, source string) bool {
+	for _, event := range events {
+		if event.Source == source {
+			return true
+		}
+	}
+	return false
 }

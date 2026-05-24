@@ -1,6 +1,7 @@
 package steam
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/url"
@@ -11,6 +12,9 @@ import (
 )
 
 const SteamworksUpcomingEvents = "https://partner.steamgames.com/doc/marketing/upcoming_events"
+const SteamStoreSpecials = "https://store.steampowered.com/specials"
+
+const maxDiscoveredStoreSalePages = 16
 
 type Event struct {
 	Name            string `json:"name"`
@@ -27,8 +31,9 @@ type Event struct {
 }
 
 type EventQuery struct {
-	PastDays   int
-	FutureDays int
+	PastDays          int
+	FutureDays        int
+	IncludeStoreSales bool
 }
 
 var months = map[string]time.Month{
@@ -64,6 +69,11 @@ func (c *Client) Events(query EventQuery) ([]Event, error) {
 	if len(parsed) == 0 {
 		return nil, fmt.Errorf("no live Steamworks events could be parsed from %s", SteamworksUpcomingEvents)
 	}
+	if query.IncludeStoreSales {
+		if storeEvents, err := c.storeSaleEvents(query, lang); err == nil {
+			parsed = append(parsed, storeEvents...)
+		}
+	}
 	return FilterEvents(parsed, query), nil
 }
 
@@ -73,6 +83,66 @@ func (c *Client) steamworksEvents(lang string) ([]Event, error) {
 		return nil, err
 	}
 	return ParseSteamworksEvents(body), nil
+}
+
+func (c *Client) storeSaleEvents(query EventQuery, lang string) ([]Event, error) {
+	saleURLs := c.storeSaleCandidateURLs(query)
+	if discovered, err := c.storeSaleURLsFromSpecials(lang); err == nil {
+		saleURLs = append(saleURLs, discovered...)
+	}
+
+	events := []Event{}
+	for _, saleURL := range uniqueStrings(saleURLs) {
+		body, err := c.GetText(saleURL, url.Values{"l": {lang}})
+		if err != nil {
+			continue
+		}
+		events = append(events, ParseSteamStoreSalePage(body, saleURL)...)
+	}
+	return dedupeEvents(events), nil
+}
+
+func (c *Client) storeSaleURLsFromSpecials(lang string) ([]string, error) {
+	body, err := c.GetText(c.Endpoints.Store+"/specials", url.Values{"l": {lang}})
+	if err != nil {
+		return nil, err
+	}
+	return ParseSteamStoreSaleURLs(body, c.Endpoints.Store), nil
+}
+
+func (c *Client) storeSaleCandidateURLs(query EventQuery) []string {
+	years := eventQueryYears(query, time.Now())
+	formats := []string{
+		"lny%d",
+		"lunarnewyear%d",
+		"chinesenewyear%d",
+	}
+
+	urls := make([]string, 0, len(years)*len(formats))
+	for _, year := range years {
+		for _, format := range formats {
+			urls = append(urls, c.Endpoints.Store+"/sale/"+fmt.Sprintf(format, year))
+		}
+	}
+	return urls
+}
+
+func eventQueryYears(query EventQuery, now time.Time) []int {
+	minYear := now.AddDate(0, 0, -query.PastDays).Year()
+	maxYear := now.AddDate(0, 0, query.FutureDays).Year()
+	if minYear > maxYear {
+		minYear, maxYear = maxYear, minYear
+	}
+	if maxYear-minYear > 8 {
+		minYear = now.Year() - 2
+		maxYear = now.Year() + 2
+	}
+
+	years := make([]int, 0, maxYear-minYear+1)
+	for year := minYear; year <= maxYear; year++ {
+		years = append(years, year)
+	}
+	return years
 }
 
 func FilterEvents(events []Event, query EventQuery) []Event {
@@ -122,6 +192,81 @@ func ParseSteamworksEvents(raw string) []Event {
 	events = append(events, parseFestTables(doc, tableRanges, sectionDescription(seasonalSegment, true))...)
 	events = append(events, parseHeadingEvents(nextFestSegment, "next_fest", sectionDescription(nextFestSegment, false))...)
 	return dedupeEvents(events)
+}
+
+// ParseSteamStoreSalePage extracts the top-level event metadata embedded in
+// public Steam Store sale pages such as /sale/lny2026.
+func ParseSteamStoreSalePage(raw, pageURL string) []Event {
+	attr := htmlDataAttr(raw, "data-partnereventstore")
+	if attr == "" {
+		return nil
+	}
+
+	var storeEvents []storeSaleEvent
+	if err := json.Unmarshal([]byte(attr), &storeEvents); err != nil {
+		return nil
+	}
+	if len(storeEvents) == 0 {
+		return nil
+	}
+
+	groupName := storeSaleGroupName(raw)
+	title := metaContent(raw, "og:title")
+	for _, storeEvent := range storeEvents {
+		if storeEvent.EventName == "" || storeEvent.StartTime == 0 || storeEvent.EndTime == 0 {
+			continue
+		}
+		name := storeEvent.EventName
+		if title != "" && !strings.EqualFold(title, "Steam") {
+			name = title
+		}
+
+		event := Event{
+			Name:        cleanText(name),
+			StartDate:   unixDateInPacific(storeEvent.StartTime),
+			EndDate:     unixDateInPacific(storeEvent.EndTime),
+			Source:      "steam_store",
+			Category:    "store_sale",
+			Timezone:    "PT",
+			Description: "Steam Store sale page.",
+			InfoURL:     pageURL,
+		}
+		if groupName != "" {
+			event.Description = "Steam Store sale page presented by " + groupName + "."
+			event.Notes = event.Description
+		}
+		return []Event{event}
+	}
+	return nil
+}
+
+// ParseSteamStoreSaleURLs extracts sale page URLs from public Store hub HTML.
+func ParseSteamStoreSaleURLs(raw, storeBase string) []string {
+	urls := []string{}
+
+	attr := htmlDataAttr(raw, "data-ch_spotlights_data")
+	if attr != "" {
+		var spotlights []struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(attr), &spotlights); err == nil {
+			for _, spotlight := range spotlights {
+				urls = append(urls, normalizeStoreSaleURL(spotlight.URL, storeBase))
+			}
+		}
+	}
+
+	cleaned := strings.ReplaceAll(html.UnescapeString(raw), `\/`, `/`)
+	saleURLRe := regexp.MustCompile(`(?i)(?:https?://[^"'<>\s]+)?/sale/[a-z0-9_-]+`)
+	for _, match := range saleURLRe.FindAllString(cleaned, -1) {
+		urls = append(urls, normalizeStoreSaleURL(match, storeBase))
+	}
+
+	unique := uniqueStrings(urls)
+	if len(unique) > maxDiscoveredStoreSalePages {
+		return unique[:maxDiscoveredStoreSalePages]
+	}
+	return unique
 }
 
 func parseHeadingEvents(raw, category, description string) []Event {
@@ -346,6 +491,8 @@ func categoryDescription(category string) string {
 		return "Themed sale event spotlighting a particular category of games with corresponding eligibility criteria."
 	case "next_fest":
 		return "Multi-day celebration of upcoming games with playable demos, livestreams, developer chats, and early player feedback."
+	case "store_sale":
+		return "Steam Store sale page."
 	default:
 		return ""
 	}
@@ -479,6 +626,91 @@ func eventStatus(today, start, end time.Time) string {
 		return "upcoming"
 	}
 	return "recent"
+}
+
+type storeSaleEvent struct {
+	EventName string `json:"event_name"`
+	StartTime int64  `json:"rtime32_start_time"`
+	EndTime   int64  `json:"rtime32_end_time"`
+}
+
+type storeSaleGroup struct {
+	GroupName string `json:"group_name"`
+}
+
+func htmlDataAttr(raw, name string) string {
+	attrRe := regexp.MustCompile(`(?is)\b` + regexp.QuoteMeta(name) + `="([^"]*)"`)
+	match := attrRe.FindStringSubmatch(raw)
+	if len(match) < 2 {
+		return ""
+	}
+	return html.UnescapeString(match[1])
+}
+
+func metaContent(raw, property string) string {
+	metaRe := regexp.MustCompile(`(?is)<meta\b[^>]*(?:property|name)=["']` + regexp.QuoteMeta(property) + `["'][^>]*\bcontent=["']([^"']*)["'][^>]*>`)
+	match := metaRe.FindStringSubmatch(raw)
+	if len(match) < 2 {
+		return ""
+	}
+	return cleanText(html.UnescapeString(match[1]))
+}
+
+func storeSaleGroupName(raw string) string {
+	attr := htmlDataAttr(raw, "data-groupvanityinfo")
+	if attr == "" {
+		return ""
+	}
+	var groups []storeSaleGroup
+	if err := json.Unmarshal([]byte(attr), &groups); err != nil || len(groups) == 0 {
+		return ""
+	}
+	return cleanText(groups[0].GroupName)
+}
+
+func unixDateInPacific(value int64) string {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("PT", -8*60*60)
+	}
+	return time.Unix(value, 0).In(loc).Format(time.DateOnly)
+}
+
+func normalizeStoreSaleURL(rawURL, storeBase string) string {
+	rawURL = strings.TrimSpace(strings.ReplaceAll(html.UnescapeString(rawURL), `\/`, `/`))
+	if rawURL == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	base, err := url.Parse(storeBase)
+	if err != nil {
+		return ""
+	}
+	parsed.Scheme = base.Scheme
+	parsed.Host = base.Host
+	if !strings.HasPrefix(parsed.Path, "/sale/") {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+	return unique
 }
 
 func parseISODate(value string) (time.Time, error) {

@@ -83,6 +83,7 @@ func commandSources(commandPath string) []sourceInfo {
 		"searchresults": {Name: "search/results", URL: "https://store.steampowered.com/search/results/", Type: "official_html_json", Confidence: "medium"},
 		"achievements":  {Name: "GetGlobalAchievementPercentagesForApp", URL: "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/", Type: "official_web_api", Confidence: "high"},
 		"events":        {Name: "Steamworks Upcoming Steam Events", URL: "https://partner.steamgames.com/doc/marketing/upcoming_events", Type: "official_html_parse", Confidence: "medium"},
+		"storesales":    {Name: "Steam Store sale pages", URL: "https://store.steampowered.com/sale/{vanity}", Type: "public_store_html_parse", Confidence: "medium"},
 		"community":     {Name: "Steam Community profile XML", URL: "https://steamcommunity.com/profiles/{steamid64}/?xml=1", Type: "public_community_xml", Confidence: "high"},
 		"wishlist":      {Name: "IWishlistService/GetWishlist", URL: "https://api.steampowered.com/IWishlistService/GetWishlist/v1/", Type: "public_steam_api_observed", Confidence: "medium"},
 		"cdn":           {Name: "Steam CDN", URL: "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/...", Type: "cdn_convention", Confidence: "medium"},
@@ -117,7 +118,7 @@ func commandSources(commandPath string) []sourceInfo {
 	case "achievements":
 		return pick("achievements")
 	case "events":
-		return pick("events")
+		return pick("events", "storesales")
 	case "user":
 		return pick("community")
 	case "wishlist":

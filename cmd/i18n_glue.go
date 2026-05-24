@@ -64,6 +64,7 @@ func localizeCommands() {
 	eventsCmd.Short = i18n.T("events.short")
 	setFlagUsage(eventsCmd, "past-days", i18n.T("events.flag.past_days"))
 	setFlagUsage(eventsCmd, "future-days", i18n.T("events.flag.future_days"))
+	setFlagUsage(eventsCmd, "store-sales", i18n.T("events.flag.store_sales"))
 	userCmd.Short = i18n.T("user.short")
 	wishlistCmd.Short = i18n.T("wishlist.short")
 	setFlagUsage(wishlistCmd, "count", i18n.T("wishlist.flag.count"))

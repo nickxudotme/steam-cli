@@ -165,3 +165,49 @@ func TestParseSteamworksEventsLocalizedEnglishFests(t *testing.T) {
 		t.Fatalf("english description = %q", events[1].Description)
 	}
 }
+
+func TestParseSteamStoreSalePage(t *testing.T) {
+	raw := `<html><head>
+		<meta property="og:title" content="2026 年农历新年">
+	</head><body>
+		<div id="application_config"
+			data-partnereventstore="[{&quot;event_name&quot;:&quot;Lunar New Year 2026&quot;,&quot;rtime32_start_time&quot;:1770920340,&quot;rtime32_end_time&quot;:1772128800}]"
+			data-groupvanityinfo="[{&quot;group_name&quot;:&quot;蒸汽平台促销&quot;}]"></div>
+	</body></html>`
+
+	events := ParseSteamStoreSalePage(raw, "https://store.steampowered.com/sale/lny2026")
+	if len(events) != 1 {
+		t.Fatalf("len(ParseSteamStoreSalePage) = %d, want 1: %#v", len(events), events)
+	}
+
+	event := events[0]
+	if event.Name != "2026 年农历新年" {
+		t.Fatalf("name = %q, want localized title", event.Name)
+	}
+	if event.StartDate != "2026-02-12" || event.EndDate != "2026-02-26" {
+		t.Fatalf("dates = %s - %s, want PT sale dates", event.StartDate, event.EndDate)
+	}
+	if event.Source != "steam_store" || event.Category != "store_sale" || event.Timezone != "PT" {
+		t.Fatalf("source/category/timezone = %#v", event)
+	}
+	if event.Description != "Steam Store sale page presented by 蒸汽平台促销." {
+		t.Fatalf("description = %q", event.Description)
+	}
+}
+
+func TestParseSteamStoreSaleURLs(t *testing.T) {
+	raw := `<div
+		data-ch_spotlights_data="[{&quot;url&quot;:&quot;https:\/\/store.steampowered.com\/sale\/lny2026?snr=1&quot;},{&quot;url&quot;:&quot;https:\/\/store.steampowered.com\/app\/620&quot;}]">
+		<a href="/sale/skulls2026">Skulls</a>
+		<a href="https://store.steampowered.com/sale/lny2026?again=1">Duplicate</a>
+	</div>`
+
+	urls := ParseSteamStoreSaleURLs(raw, "http://example.test")
+	want := []string{
+		"http://example.test/sale/lny2026",
+		"http://example.test/sale/skulls2026",
+	}
+	if strings.Join(urls, ",") != strings.Join(want, ",") {
+		t.Fatalf("urls = %#v, want %#v", urls, want)
+	}
+}
