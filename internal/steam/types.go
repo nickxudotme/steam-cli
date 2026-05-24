@@ -76,6 +76,8 @@ type StoreItem struct {
 	FullDescriptionBBCode string           `json:"full_description_bbcode,omitempty"`
 	BestPurchaseOption    *PurchaseOption  `json:"best_purchase_option,omitempty"`
 	PurchaseOptions       []PurchaseOption `json:"purchase_options,omitempty"`
+	IsComingSoon          bool             `json:"is_coming_soon,omitempty"`
+	IsFree                bool             `json:"is_free,omitempty"`
 }
 
 type StoreAssets struct {
@@ -110,6 +112,7 @@ type StoreRelease struct {
 	SteamReleaseDate         int64 `json:"steam_release_date,omitempty"`
 	OriginalSteamReleaseDate int64 `json:"original_steam_release_date,omitempty"`
 	OriginalReleaseDate      int64 `json:"original_release_date,omitempty"`
+	IsComingSoon             bool  `json:"is_coming_soon,omitempty"`
 }
 
 type StorePlatforms struct {
@@ -344,14 +347,30 @@ type GlobalAchievement struct {
 }
 
 type StoreResult struct {
-	AppID    int    `json:"appid"`
-	Name     string `json:"name"`
-	Release  string `json:"release"`
-	Review   string `json:"review"`
-	Discount string `json:"discount"`
-	Original string `json:"original"`
-	Final    string `json:"final"`
-	URL      string `json:"url"`
+	AppID       int    `json:"appid"`
+	Name        string `json:"name"`
+	Release     string `json:"-"`
+	ReleaseTime int64  `json:"release_time,omitempty"`
+	Review      string `json:"review"`
+	Discount    string `json:"discount"`
+	Original    string `json:"original"`
+	Final       string `json:"final"`
+	DiscountEnd int64  `json:"discount_end,omitempty"`
+	URL         string `json:"url"`
+}
+
+type StoreResultCondition string
+
+const (
+	StoreResultConditionDiscounted StoreResultCondition = "discounted"
+	StoreResultConditionPreorder   StoreResultCondition = "preorder"
+)
+
+type StoreResultsQuery struct {
+	Filter string                 `json:"filter"`
+	Count  int                    `json:"count"`
+	Any    []StoreResultCondition `json:"any,omitempty"`
+	All    []StoreResultCondition `json:"all,omitempty"`
 }
 
 type UserProfile struct {

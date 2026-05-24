@@ -80,7 +80,7 @@ go build -o steam-cli .
 | [`dlc APPID`](#dlc) | DLC 列表，附带价格、折扣、评价、发行日期 | [`appdetails.dlc`][source-appdetails] + 批量 [`IStoreBrowseService/GetItems`][source-storebrowse] |
 | [`similar APPID`](#similar) | 相似/推荐游戏 | [`IStoreQueryService/MoreLikeThis`][source-morelikethis] |
 | [`locales`](#locales) | 常用 `--cc` 地区代码、实时 Steam `--lang` 语言代码、可选地区价格探测 | 内置参考列表、[Steam Store 语言菜单][source-store-home]、[`appdetails`][source-appdetails] |
-| [`deals`](#deals) | 特惠、热销、新品、即将推出列表 | [`search/results`][source-search-results] |
+| [`deals`](#deals) | 特惠、热销、新品、即将推出列表、折扣结束时间 | [`search/results`][source-search-results]、[`IStoreBrowseService/GetItems`][source-storebrowse] |
 | [`reviews APPID`](#reviews) | 用户评价摘要和评论列表，支持正负评、购买类型、cursor | [`appreviews`][source-appreviews] |
 | [`news APPID`](#news) | 游戏新闻、公告、社区活动 | [`GetNewsForApp`][source-news] |
 | [`achievements APPID`](#achievements) | 全局成就解锁率 | [`GetGlobalAchievementPercentagesForApp`][source-achievements] |
@@ -178,7 +178,7 @@ Price: 7.49 USD -75%  original 29.99 USD
 Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 10:00)
 ```
 
-折扣结束时间来自 `IStoreBrowseService/GetItems` 的 `active_discounts[].discount_end_date`。Steam 当前公开响应没有权威的折扣开始时间；如果需要开始时间，只能用相关活动窗口推断，或自己长期观测价格变化。
+折扣结束时间来自 `IStoreBrowseService/GetItems` 的 `active_discounts[].discount_end_date`。JSON 中事件时间（例如 `discount_end`、`release_time`）统一保留 Unix 秒。Steam 当前公开响应没有权威的折扣开始时间；如果需要开始时间，只能用相关活动窗口推断，或自己长期观测价格变化。
 
 <a id="media"></a>
 
@@ -240,8 +240,13 @@ Similar to 264710
 
 ```bash
 ./steam-cli deals --filter specials --count 10
+./steam-cli deals --filter topsellers --any discounted,preorder --count 10
+./steam-cli deals --filter discountedtopsellers --count 10
+./steam-cli deals --filter preordertopsellers --count 10
 ./steam-cli deals --filter topsellers --count 10
 ```
+
+使用 `--any discounted,preorder` 可以保留所选榜单的排序，同时展示满足任一条件的游戏。例如 `--filter topsellers --any discounted,preorder --count 10` 会展示热销榜中当前打折或可预购的游戏。JSON 输出中的事件时间（例如 `release_time`、`discount_end`）统一使用 Unix 秒。
 
 <a id="reviews"></a>
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -119,6 +120,112 @@ func newTestClient(t *testing.T, srv *httptest.Server) *Client {
 	}
 	c.Cache = NewCache()
 	return c
+}
+
+func TestStoreResultsDiscountedTopSellersCombinesFilters(t *testing.T) {
+	var query url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/search/results/":
+			query = r.URL.Query()
+			fmt.Fprintln(w, `{"success":1,"results_html":"<a href=\"https://store.steampowered.com/app/1/Discounted/\" data-ds-appid=\"1\" class=\"search_result_row\"><span class=\"title\">Discounted</span><div class=\"discount_pct\">-50%</div><div class=\"discount_final_price\">$4.99</div></a><a href=\"https://store.steampowered.com/app/2/FullPrice/\" data-ds-appid=\"2\" class=\"search_result_row\"><span class=\"title\">Full Price</span><div class=\"discount_final_price\">$9.99</div></a>"}`)
+		case "/IStoreBrowseService/GetItems/v1/":
+			fmt.Fprintln(w, `{"response":{"store_items":[{"appid":1,"name":"Discounted","release":{"steam_release_date":1000000000},"best_purchase_option":{"final_price_in_cents":"499","active_discounts":[{"discount_end_date":2000000000}]}}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	got, err := c.StoreResults("discountedtopsellers", 10)
+	if err != nil {
+		t.Fatalf("StoreResults returned error: %v", err)
+	}
+	if query.Get("filter") != "topsellers" || query.Get("specials") != "1" {
+		t.Fatalf("query = %v, want filter=topsellers and specials=1", query)
+	}
+	if len(got) != 1 || got[0].AppID != 1 {
+		t.Fatalf("StoreResults() = %#v, want only the discounted item", got)
+	}
+	if got[0].DiscountEnd != 2000000000 {
+		t.Fatalf("DiscountEnd = %d, want 2000000000", got[0].DiscountEnd)
+	}
+	if got[0].ReleaseTime != 1000000000 {
+		t.Fatalf("ReleaseTime = %d, want 1000000000", got[0].ReleaseTime)
+	}
+}
+
+func TestStoreResultsPreorderTopSellersFiltersComingSoonPurchasableItems(t *testing.T) {
+	var searchQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/search/results/":
+			searchQuery = r.URL.Query()
+			fmt.Fprintln(w, `{"success":1,"results_html":"<a href=\"https://store.steampowered.com/app/1/Preorder/\" data-ds-appid=\"1\" class=\"search_result_row\"><span class=\"title\">Preorder</span><div class=\"search_released\">Coming soon</div><div class=\"discount_final_price\">$29.99</div></a><a href=\"https://store.steampowered.com/app/2/Released/\" data-ds-appid=\"2\" class=\"search_result_row\"><span class=\"title\">Released</span><div class=\"search_released\">Jan 1, 2020</div><div class=\"discount_final_price\">$19.99</div></a><a href=\"https://store.steampowered.com/app/3/WishlistOnly/\" data-ds-appid=\"3\" class=\"search_result_row\"><span class=\"title\">Wishlist Only</span><div class=\"search_released\">Coming soon</div></a>"}`)
+		case "/IStoreBrowseService/GetItems/v1/":
+			fmt.Fprintln(w, `{"response":{"store_items":[{"appid":1,"name":"Preorder","is_coming_soon":true,"release":{"steam_release_date":1000000000},"best_purchase_option":{"final_price_in_cents":"2999","formatted_final_price":"$29.99"}},{"appid":2,"name":"Released","release":{"steam_release_date":1000000001},"best_purchase_option":{"final_price_in_cents":"1999","formatted_final_price":"$19.99"}},{"appid":3,"name":"Wishlist Only","is_coming_soon":true,"release":{"steam_release_date":1000000002}}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	got, err := c.StoreResults("preordertopsellers", 10)
+	if err != nil {
+		t.Fatalf("StoreResults returned error: %v", err)
+	}
+	if searchQuery.Get("filter") != "topsellers" || searchQuery.Get("count") != "50" {
+		t.Fatalf("query = %v, want filter=topsellers and expanded count=50", searchQuery)
+	}
+	if len(got) != 1 || got[0].AppID != 1 {
+		t.Fatalf("StoreResults() = %#v, want only the purchasable coming-soon item", got)
+	}
+	if got[0].ReleaseTime != 1000000000 {
+		t.Fatalf("ReleaseTime = %d, want 1000000000", got[0].ReleaseTime)
+	}
+}
+
+func TestStoreResultsQueryAnyDiscountedOrPreorder(t *testing.T) {
+	var searchQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/search/results/":
+			searchQuery = r.URL.Query()
+			fmt.Fprintln(w, `{"success":1,"results_html":"<a href=\"https://store.steampowered.com/app/1/FullPrice/\" data-ds-appid=\"1\" class=\"search_result_row\"><span class=\"title\">Full Price</span><div class=\"discount_final_price\">$59.99</div></a><a href=\"https://store.steampowered.com/app/2/Discounted/\" data-ds-appid=\"2\" class=\"search_result_row\"><span class=\"title\">Discounted</span><div class=\"discount_pct\">-40%</div><div class=\"discount_final_price\">$35.99</div></a><a href=\"https://store.steampowered.com/app/3/Preorder/\" data-ds-appid=\"3\" class=\"search_result_row\"><span class=\"title\">Preorder</span><div class=\"discount_final_price\">$29.99</div></a>"}`)
+		case "/IStoreBrowseService/GetItems/v1/":
+			fmt.Fprintln(w, `{"response":{"store_items":[{"appid":1,"name":"Full Price","release":{"steam_release_date":1000000000},"best_purchase_option":{"final_price_in_cents":"5999"}},{"appid":2,"name":"Discounted","release":{"steam_release_date":1000000001},"best_purchase_option":{"final_price_in_cents":"3599","active_discounts":[{"discount_end_date":2000000000}]}},{"appid":3,"name":"Preorder","is_coming_soon":true,"release":{"steam_release_date":1000000002},"best_purchase_option":{"final_price_in_cents":"2999"}}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	got, err := c.StoreResultsQuery(StoreResultsQuery{
+		Filter: "topsellers",
+		Count:  10,
+		Any:    []StoreResultCondition{StoreResultConditionDiscounted, StoreResultConditionPreorder},
+	})
+	if err != nil {
+		t.Fatalf("StoreResultsQuery returned error: %v", err)
+	}
+	if searchQuery.Get("filter") != "topsellers" || searchQuery.Get("count") != "50" {
+		t.Fatalf("query = %v, want filter=topsellers and expanded count=50", searchQuery)
+	}
+	if len(got) != 2 || got[0].AppID != 2 || got[1].AppID != 3 {
+		t.Fatalf("StoreResultsQuery() = %#v, want discounted then preorder", got)
+	}
+	if got[0].DiscountEnd != 2000000000 || got[1].DiscountEnd != 0 {
+		t.Fatalf("discount ends = %d, %d; want 2000000000, 0", got[0].DiscountEnd, got[1].DiscountEnd)
+	}
+	if got[0].ReleaseTime != 1000000001 || got[1].ReleaseTime != 1000000002 {
+		t.Fatalf("release times = %d, %d; want 1000000001, 1000000002", got[0].ReleaseTime, got[1].ReleaseTime)
+	}
 }
 
 func TestAppDetailsHappyPath(t *testing.T) {

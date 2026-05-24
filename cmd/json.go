@@ -110,7 +110,7 @@ func commandSources(commandPath string) []sourceInfo {
 	case "similar":
 		return []sourceInfo{{Name: "IStoreQueryService/MoreLikeThis", URL: "https://api.steampowered.com/IStoreQueryService/MoreLikeThis/v1/", Type: "public_steam_api_observed", Confidence: "medium"}}
 	case "deals":
-		return pick("searchresults")
+		return pick("searchresults", "storebrowse")
 	case "reviews":
 		return pick("appreviews")
 	case "news":

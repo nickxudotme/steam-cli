@@ -16,11 +16,12 @@ func ParseStoreResultsHTML(raw string) []StoreResult {
 	for _, row := range rows {
 		block := row[0]
 		appid, _ := strconv.Atoi(row[2])
+		release := firstMatch(block, `(?is)<div class="search_released[^"]*">\s*(.*?)\s*</div>`)
 		results = append(results, StoreResult{
 			AppID:    appid,
 			URL:      row[1],
 			Name:     firstMatch(block, `(?is)<span class="title">(.*?)</span>`),
-			Release:  firstMatch(block, `(?is)<div class="search_released[^"]*">\s*(.*?)\s*</div>`),
+			Release:  release,
 			Review:   cleanTooltip(firstMatch(block, `(?is)data-tooltip-html="(.*?)"`)),
 			Discount: firstMatch(block, `(?is)<div class="discount_pct">(.*?)</div>`),
 			Original: firstMatch(block, `(?is)<div class="discount_original_price">(.*?)</div>`),

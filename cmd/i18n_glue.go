@@ -50,6 +50,8 @@ func localizeCommands() {
 	dealsCmd.Example = i18n.T("deals.example")
 	setFlagUsage(dealsCmd, "count", i18n.T("deals.flag.count"))
 	setFlagUsage(dealsCmd, "filter", i18n.T("deals.flag.filter"))
+	setFlagUsage(dealsCmd, "any", i18n.T("deals.flag.any"))
+	setFlagUsage(dealsCmd, "all", i18n.T("deals.flag.all"))
 	reviewsCmd.Short = i18n.T("reviews.short")
 	reviewsCmd.Example = i18n.T("reviews.example")
 	setFlagUsage(reviewsCmd, "count", i18n.T("reviews.flag.count"))

@@ -476,25 +476,51 @@ func (c *Client) GlobalAchievements(appid int) ([]GlobalAchievement, error) {
 }
 
 func (c *Client) StoreResults(filter string, count int) ([]StoreResult, error) {
+	return c.StoreResultsQuery(StoreResultsQuery{Filter: filter, Count: count})
+}
+
+func (c *Client) StoreResultsQuery(query StoreResultsQuery) ([]StoreResult, error) {
+	filter := query.Filter
 	if filter == "" {
 		filter = "specials"
+	}
+	originalFilter := filter
+	anyConditions := append([]StoreResultCondition(nil), query.Any...)
+	allConditions := append([]StoreResultCondition(nil), query.All...)
+	switch filter {
+	case "discountedtopsellers":
+		filter = "topsellers"
+		allConditions = append(allConditions, StoreResultConditionDiscounted)
+	case "preordertopsellers":
+		filter = "topsellers"
+		allConditions = append(allConditions, StoreResultConditionPreorder)
+	}
+
+	requestCount := query.Count
+	if hasStoreResultConditions(anyConditions, allConditions) && requestCount > 0 && requestCount < 50 {
+		requestCount = 50
 	}
 	params := url.Values{
 		"query":        {""},
 		"start":        {"0"},
-		"count":        {strconv.Itoa(count)},
+		"count":        {strconv.Itoa(requestCount)},
 		"dynamic_data": {""},
 		"infinite":     {"1"},
 		"cc":           {c.CC},
 		"l":            {c.Lang},
 	}
-	switch filter {
-	case "specials":
+	if originalFilter == "discountedtopsellers" {
+		params.Set("filter", "topsellers")
 		params.Set("specials", "1")
-	case "topsellers", "globaltopsellers", "new", "comingsoon":
-		params.Set("filter", filter)
-	default:
-		params.Set("filter", filter)
+	} else {
+		switch filter {
+		case "specials":
+			params.Set("specials", "1")
+		case "topsellers", "globaltopsellers", "new", "comingsoon":
+			params.Set("filter", filter)
+		default:
+			params.Set("filter", filter)
+		}
 	}
 	var payload struct {
 		Success     int    `json:"success"`
@@ -506,10 +532,191 @@ func (c *Client) StoreResults(filter string, count int) ([]StoreResult, error) {
 		return nil, err
 	}
 	results := ParseStoreResultsHTML(payload.ResultsHTML)
-	if count > 0 && count < len(results) {
-		return results[:count], nil
+	storeItems := map[int]StoreItem{}
+	if hasStoreResultConditions(anyConditions, allConditions) {
+		filtered, items, err := c.filterStoreResults(results, anyConditions, allConditions)
+		if err != nil {
+			return nil, err
+		}
+		results = filtered
+		storeItems = items
+	}
+	if query.Count > 0 && query.Count < len(results) {
+		results = results[:query.Count]
+	}
+	if err := c.enrichStoreResultData(results, storeItems); err != nil {
+		return nil, err
 	}
 	return results, nil
+}
+
+func hasStoreResultConditions(groups ...[]StoreResultCondition) bool {
+	for _, group := range groups {
+		if len(group) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Client) filterStoreResults(results []StoreResult, anyConditions, allConditions []StoreResultCondition) ([]StoreResult, map[int]StoreItem, error) {
+	storeItems := map[int]StoreItem{}
+	if storeResultConditionsNeedStoreItems(anyConditions, allConditions) {
+		appids := make([]int, 0, len(results))
+		for _, result := range results {
+			appids = append(appids, result.AppID)
+		}
+		items, err := c.StoreItems(appids)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, item := range items {
+			storeItems[item.AppID] = item
+		}
+	}
+	filtered := results[:0]
+	for _, result := range results {
+		item, hasItem := storeItems[result.AppID]
+		if storeResultMatches(result, item, hasItem, anyConditions, allConditions) {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered, storeItems, nil
+}
+
+func storeResultConditionsNeedStoreItems(groups ...[]StoreResultCondition) bool {
+	for _, group := range groups {
+		for _, condition := range group {
+			if condition == StoreResultConditionPreorder {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func storeResultMatches(result StoreResult, item StoreItem, hasItem bool, anyConditions, allConditions []StoreResultCondition) bool {
+	for _, condition := range allConditions {
+		if !storeResultMatchesCondition(result, item, hasItem, condition) {
+			return false
+		}
+	}
+	if len(anyConditions) == 0 {
+		return true
+	}
+	for _, condition := range anyConditions {
+		if storeResultMatchesCondition(result, item, hasItem, condition) {
+			return true
+		}
+	}
+	return false
+}
+
+func storeResultMatchesCondition(result StoreResult, item StoreItem, hasItem bool, condition StoreResultCondition) bool {
+	switch condition {
+	case StoreResultConditionDiscounted:
+		return isDiscountedStoreResult(result)
+	case StoreResultConditionPreorder:
+		return hasItem && isPreorderStoreItem(item)
+	default:
+		return false
+	}
+}
+
+func isPreorderStoreItem(item StoreItem) bool {
+	comingSoon := item.IsComingSoon
+	if item.Release != nil && item.Release.IsComingSoon {
+		comingSoon = true
+	}
+	if !comingSoon || item.IsFree {
+		return false
+	}
+	if item.BestPurchaseOption != nil && item.BestPurchaseOption.FinalPriceInCents > 0 {
+		return true
+	}
+	for _, option := range item.PurchaseOptions {
+		if option.FinalPriceInCents > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func isDiscountedStoreResult(result StoreResult) bool {
+	return result.Discount != "" && result.Discount != "-"
+}
+
+func (c *Client) enrichStoreResultData(results []StoreResult, storeItems map[int]StoreItem) error {
+	if storeItems == nil {
+		storeItems = map[int]StoreItem{}
+	}
+	needed := make([]int, 0, len(results))
+	seen := map[int]bool{}
+	for _, result := range results {
+		if _, ok := storeItems[result.AppID]; ok || seen[result.AppID] {
+			continue
+		}
+		needed = append(needed, result.AppID)
+		seen[result.AppID] = true
+	}
+	if len(needed) > 0 {
+		items, err := c.StoreItems(needed)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			storeItems[item.AppID] = item
+		}
+	}
+	for index, result := range results {
+		if item, ok := storeItems[result.AppID]; ok {
+			results[index].setReleaseFromStoreItem(item)
+			if isDiscountedStoreResult(result) {
+				results[index].DiscountEnd = latestStoreItemDiscountEnd(item)
+			}
+		}
+	}
+	return nil
+}
+
+func (result *StoreResult) setReleaseFromStoreItem(item StoreItem) {
+	if item.Release == nil {
+		return
+	}
+	timestamp := item.Release.SteamReleaseDate
+	if timestamp == 0 {
+		timestamp = item.Release.OriginalSteamReleaseDate
+	}
+	if timestamp == 0 {
+		timestamp = item.Release.OriginalReleaseDate
+	}
+	if timestamp == 0 {
+		return
+	}
+	result.ReleaseTime = timestamp
+}
+
+func latestStoreItemDiscountEnd(item StoreItem) int64 {
+	var latest int64
+	if item.BestPurchaseOption != nil {
+		latest = latestActiveDiscountEnd(item.BestPurchaseOption.ActiveDiscounts)
+	}
+	for _, option := range item.PurchaseOptions {
+		if end := latestActiveDiscountEnd(option.ActiveDiscounts); end > latest {
+			latest = end
+		}
+	}
+	return latest
+}
+
+func latestActiveDiscountEnd(discounts []ActiveDiscount) int64 {
+	var latest int64
+	for _, discount := range discounts {
+		if discount.DiscountEndDate > latest {
+			latest = discount.DiscountEndDate
+		}
+	}
+	return latest
 }
 
 func (c *Client) UserProfile(input string) (*UserProfile, error) {

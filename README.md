@@ -82,7 +82,7 @@ Examples:
 | [`dlc APPID`](#dlc) | DLC list with current price, discount, reviews, release date | [`appdetails.dlc`][source-appdetails] + batch [`IStoreBrowseService/GetItems`][source-storebrowse] |
 | [`similar APPID`](#similar) | Similar/recommended games | [`IStoreQueryService/MoreLikeThis`][source-morelikethis] |
 | [`locales`](#locales) | Common `--cc` regions, live Steam `--lang` language codes, optional region price probing | built-in reference list, [Steam Store language menu][source-store-home], [`appdetails`][source-appdetails] |
-| [`deals`](#deals) | Specials, top sellers, new releases, upcoming games | [`search/results`][source-search-results] |
+| [`deals`](#deals) | Specials, top sellers, new releases, upcoming games, discount end time | [`search/results`][source-search-results], [`IStoreBrowseService/GetItems`][source-storebrowse] |
 | [`reviews APPID`](#reviews) | Review summary and review list with filters and cursor pagination | [`appreviews`][source-appreviews] |
 | [`news APPID`](#news) | Steam news, announcements, community events | [`GetNewsForApp`][source-news] |
 | [`achievements APPID`](#achievements) | Global achievement unlock percentages | [`GetGlobalAchievementPercentagesForApp`][source-achievements] |
@@ -182,7 +182,7 @@ Price: 7.49 USD -75%  original 29.99 USD
 Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 10:00)
 ```
 
-The discount end time comes from `IStoreBrowseService/GetItems` field `active_discounts[].discount_end_date`. Steam's current public response does not expose an authoritative discount start time. A start time can only be inferred from related event windows or observed by tracking price changes over time.
+The discount end time comes from `IStoreBrowseService/GetItems` field `active_discounts[].discount_end_date`. JSON keeps event times such as `discount_end` and `release_time` as Unix seconds. Steam's current public response does not expose an authoritative discount start time. A start time can only be inferred from related event windows or observed by tracking price changes over time.
 
 <a id="media"></a>
 
@@ -258,8 +258,13 @@ Similar to 264710
 
 ```bash
 ./steam-cli deals --filter specials --count 10
+./steam-cli deals --filter topsellers --any discounted,preorder --count 10
+./steam-cli deals --filter discountedtopsellers --count 10
+./steam-cli deals --filter preordertopsellers --count 10
 ./steam-cli deals --filter topsellers --count 10
 ```
+
+Use `--any discounted,preorder` to keep the selected store list order while showing games that match at least one condition. For example, `--filter topsellers --any discounted,preorder --count 10` shows top sellers that are either currently discounted or available for pre-order. JSON output uses Unix seconds for event times such as `release_time` and `discount_end`.
 
 <a id="reviews"></a>
 
