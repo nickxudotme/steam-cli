@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"steam-cli/internal/i18n"
+	"steam-cli/internal/itad"
 	"steam-cli/internal/steam"
 	"steam-cli/internal/ui"
 
@@ -13,7 +14,8 @@ import (
 )
 
 var priceOpts struct {
-	compare string
+	compare  string
+	enhanced bool
 }
 
 var priceCmd = &cobra.Command{
@@ -27,6 +29,12 @@ var priceCmd = &cobra.Command{
 		if err != nil {
 			return nil, err
 		}
+		if priceOpts.enhanced && priceOpts.compare != "" {
+			return nil, &steam.Error{
+				Code:    steam.CodeInvalidInput,
+				Message: "--enhanced cannot be combined with --compare yet",
+			}
+		}
 		if priceOpts.compare != "" {
 			return loadPriceComparison(appid, priceOpts.compare)
 		}
@@ -35,14 +43,23 @@ var priceCmd = &cobra.Command{
 			return nil, err
 		}
 		storeItem, _ := client().StoreItem(appid)
-		return priceResult{
+		result := priceResult{
 			AppID:         appid,
 			Name:          details.Name,
 			IsFree:        details.IsFree,
 			PriceOverview: details.PriceOverview,
 			StoreItem:     storeItem,
 			details:       details,
-		}, nil
+		}
+		if priceOpts.enhanced {
+			summary, err := loadITADSummary(appid)
+			if err != nil {
+				return nil, err
+			}
+			result.itad = summary
+			result.PriceInsights = buildPriceInsights(summary)
+		}
+		return result, nil
 	}, func(value any) error {
 		if data, ok := value.(*priceComparisonResult); ok {
 			renderPriceComparison(data)
@@ -64,12 +81,30 @@ var priceCmd = &cobra.Command{
 		if text := discountEndText(data.StoreItem); text != "" {
 			fmt.Println(ui.Accent.Render(i18n.T("price.discount_ends")) + text)
 		}
+		if data.PriceInsights != nil {
+			fmt.Println()
+			fmt.Println(ui.Section(i18n.T("section.price_insights")))
+			fmt.Println(ui.KeyValue(i18n.T("label.best_deal"), formatInsightDeal(data.PriceInsights.BestDeal)))
+			fmt.Println(ui.KeyValue(i18n.T("label.history_low"), historyLowText(data.PriceInsights.HistoryLow)))
+			fmt.Println(ui.KeyValue(i18n.T("label.best_ever_deal"), formatInsightHistoricDeal(data.PriceInsights.BestEverDeal)))
+			fmt.Println(ui.KeyValue(i18n.T("label.steam_store_low"), formatInsightHistoricDeal(data.PriceInsights.SteamStoreLow)))
+			fmt.Println(ui.KeyValue(i18n.T("label.bundle_count"), bundleCountText(data.PriceInsights)))
+			fmt.Println(ui.KeyValue(i18n.T("label.price_page"), empty(data.PriceInsights.PricePage)))
+			fmt.Println(ui.KeyValue(i18n.T("label.deal_link"), empty(data.PriceInsights.DealURL)))
+			if len(data.PriceInsights.Bundles) > 0 {
+				fmt.Println()
+				fmt.Println(ui.Table([]string{"ID", i18n.T("table.title"), i18n.T("table.price"), i18n.T("table.ends")}, insightBundleRows(data.PriceInsights.Bundles)))
+			}
+		}
 		return nil
 	}),
 }
 
 func init() {
 	priceCmd.Flags().StringVar(&priceOpts.compare, "compare", "", "comma-separated country/region codes to compare, for example CN,US,JP")
+	priceCmd.Flags().BoolVar(&priceOpts.enhanced, "enhanced", false, "include advanced price insights from the optional third-party pricing API")
+	priceCmd.Flags().BoolVar(&priceOpts.enhanced, "itad", false, "include advanced price insights from the optional third-party pricing API")
+	_ = priceCmd.Flags().MarkHidden("itad")
 }
 
 type priceResult struct {
@@ -78,6 +113,8 @@ type priceResult struct {
 	IsFree        bool                 `json:"is_free"`
 	PriceOverview *steam.PriceOverview `json:"price_overview,omitempty"`
 	StoreItem     *steam.StoreItem     `json:"store_item,omitempty"`
+	PriceInsights *priceInsights       `json:"price_insights,omitempty"`
+	itad          *itad.Summary
 	details       *steam.AppDetails
 }
 

@@ -74,20 +74,26 @@ func responseMetaFor(commandPath string) jsonMeta {
 func commandSources(commandPath string) []sourceInfo {
 	name := commandName(commandPath)
 	common := map[string]sourceInfo{
-		"appdetails":    {Name: "appdetails", URL: "https://store.steampowered.com/api/appdetails", Type: "official_store_api", Confidence: "high"},
-		"storebrowse":   {Name: "IStoreBrowseService/GetItems", URL: "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/", Type: "public_steam_api_observed", Confidence: "medium"},
-		"appreviews":    {Name: "appreviews", URL: "https://store.steampowered.com/appreviews/{appid}", Type: "official_store_api", Confidence: "high"},
-		"players":       {Name: "GetNumberOfCurrentPlayers", URL: "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/", Type: "official_web_api", Confidence: "high"},
-		"news":          {Name: "GetNewsForApp", URL: "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/", Type: "official_web_api", Confidence: "high"},
-		"storesearch":   {Name: "storesearch", URL: "https://store.steampowered.com/api/storesearch", Type: "official_store_api", Confidence: "high"},
-		"searchresults": {Name: "search/results", URL: "https://store.steampowered.com/search/results/", Type: "official_html_json", Confidence: "medium"},
-		"achievements":  {Name: "GetGlobalAchievementPercentagesForApp", URL: "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/", Type: "official_web_api", Confidence: "high"},
-		"events":        {Name: "Steamworks Upcoming Steam Events", URL: "https://partner.steamgames.com/doc/marketing/upcoming_events", Type: "official_html_parse", Confidence: "medium"},
-		"storesales":    {Name: "Steam Store sale pages", URL: "https://store.steampowered.com/sale/{vanity}", Type: "public_store_html_parse", Confidence: "medium"},
-		"community":     {Name: "Steam Community profile XML", URL: "https://steamcommunity.com/profiles/{steamid64}/?xml=1", Type: "public_community_xml", Confidence: "high"},
-		"wishlist":      {Name: "IWishlistService/GetWishlist", URL: "https://api.steampowered.com/IWishlistService/GetWishlist/v1/", Type: "public_steam_api_observed", Confidence: "medium"},
-		"cdn":           {Name: "Steam CDN", URL: "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/...", Type: "cdn_convention", Confidence: "medium"},
-		"storehome":     {Name: "Steam Store language menu", URL: "https://store.steampowered.com/", Type: "official_html_parse", Confidence: "medium"},
+		"appdetails":             {Name: "appdetails", URL: "https://store.steampowered.com/api/appdetails", Type: "official_store_api", Confidence: "high"},
+		"storebrowse":            {Name: "IStoreBrowseService/GetItems", URL: "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/", Type: "public_steam_api_observed", Confidence: "medium"},
+		"appreviews":             {Name: "appreviews", URL: "https://store.steampowered.com/appreviews/{appid}", Type: "official_store_api", Confidence: "high"},
+		"players":                {Name: "GetNumberOfCurrentPlayers", URL: "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/", Type: "official_web_api", Confidence: "high"},
+		"news":                   {Name: "GetNewsForApp", URL: "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/", Type: "official_web_api", Confidence: "high"},
+		"storesearch":            {Name: "storesearch", URL: "https://store.steampowered.com/api/storesearch", Type: "official_store_api", Confidence: "high"},
+		"searchresults":          {Name: "search/results", URL: "https://store.steampowered.com/search/results/", Type: "official_html_json", Confidence: "medium"},
+		"achievements":           {Name: "GetGlobalAchievementPercentagesForApp", URL: "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/", Type: "official_web_api", Confidence: "high"},
+		"events":                 {Name: "Steamworks Upcoming Steam Events", URL: "https://partner.steamgames.com/doc/marketing/upcoming_events", Type: "official_html_parse", Confidence: "medium"},
+		"storesales":             {Name: "Steam Store sale pages", URL: "https://store.steampowered.com/sale/{vanity}", Type: "public_store_html_parse", Confidence: "medium"},
+		"community":              {Name: "Steam Community profile XML", URL: "https://steamcommunity.com/profiles/{steamid64}/?xml=1", Type: "public_community_xml", Confidence: "high"},
+		"wishlist":               {Name: "IWishlistService/GetWishlist", URL: "https://api.steampowered.com/IWishlistService/GetWishlist/v1/", Type: "public_steam_api_observed", Confidence: "medium"},
+		"cdn":                    {Name: "Steam CDN", URL: "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/...", Type: "cdn_convention", Confidence: "medium"},
+		"storehome":              {Name: "Steam Store language menu", URL: "https://store.steampowered.com/", Type: "official_html_parse", Confidence: "medium"},
+		"pricebackendlookup":     {Name: "advanced price lookup", URL: "https://api.isthereanydeal.com/games/lookup/v1", Type: "third_party_api", Confidence: "high"},
+		"pricebackendoverview":   {Name: "advanced price overview", URL: "https://api.isthereanydeal.com/games/overview/v2", Type: "third_party_api", Confidence: "high"},
+		"pricebackendhistory":    {Name: "advanced price history", URL: "https://api.isthereanydeal.com/games/history/v2", Type: "third_party_api", Confidence: "high"},
+		"pricebackendhistorylow": {Name: "advanced price low history", URL: "https://api.isthereanydeal.com/games/historylow/v1", Type: "third_party_api", Confidence: "high"},
+		"pricebackendstorelow":   {Name: "advanced steam store low", URL: "https://api.isthereanydeal.com/games/storelow/v2", Type: "third_party_api", Confidence: "high"},
+		"pricebackendshops":      {Name: "advanced price shop map", URL: "https://api.isthereanydeal.com/service/shops/v1", Type: "third_party_api", Confidence: "high"},
 	}
 	pick := func(keys ...string) []sourceInfo {
 		out := make([]sourceInfo, 0, len(keys))
@@ -100,8 +106,14 @@ func commandSources(commandPath string) []sourceInfo {
 	case "search":
 		return pick("storesearch")
 	case "app":
+		if appOpts.enhanced {
+			return pick("appdetails", "storebrowse", "appreviews", "players", "news", "pricebackendlookup", "pricebackendoverview", "pricebackendhistorylow", "pricebackendstorelow")
+		}
 		return pick("appdetails", "storebrowse", "appreviews", "players", "news")
 	case "price":
+		if priceOpts.enhanced {
+			return pick("appdetails", "storebrowse", "pricebackendlookup", "pricebackendoverview", "pricebackendhistorylow", "pricebackendstorelow")
+		}
 		return pick("appdetails", "storebrowse")
 	case "media":
 		return pick("appdetails", "storebrowse", "cdn")
@@ -119,6 +131,10 @@ func commandSources(commandPath string) []sourceInfo {
 		return pick("achievements")
 	case "events":
 		return pick("events", "storesales")
+	case "history":
+		return pick("pricebackendlookup", "pricebackendhistory")
+	case "stores":
+		return pick("pricebackendshops")
 	case "user":
 		return pick("community")
 	case "wishlist":
@@ -153,6 +169,8 @@ func commandName(commandPath string) string {
 		return "deals"
 	case "fests", "festivals":
 		return "events"
+	case "shops":
+		return "stores"
 	default:
 		return name
 	}

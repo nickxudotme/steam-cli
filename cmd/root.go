@@ -27,6 +27,7 @@ var opts struct {
 	verbose bool
 	uiLang  string
 	rateMs  int
+	itadKey string
 }
 
 var currentCommand string
@@ -85,6 +86,7 @@ func allCommands() []*cobra.Command {
 		newsCmd,
 		achievementsCmd,
 		eventsCmd,
+		historyCmd,
 		userCmd,
 		wishlistCmd,
 		localesCmd,
@@ -163,8 +165,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&opts.verbose, "verbose", false, "print retry and diagnostic messages to stderr")
 	rootCmd.PersistentFlags().StringVar(&opts.uiLang, "ui-lang", "auto", "Steam CLI interface language: auto, en, zh-CN")
 	rootCmd.PersistentFlags().IntVar(&opts.rateMs, "rate-ms", 0, "minimum milliseconds between requests from a single client; default lets the client be polite without throttling")
+	rootCmd.PersistentFlags().StringVar(&opts.itadKey, "itad-key", os.Getenv("STEAM_CLI_ITAD_KEY"), "advanced pricing API key; defaults to STEAM_CLI_ITAD_KEY")
 
-	rootCmd.AddCommand(searchCmd, appCmd, priceCmd, mediaCmd, dlcCmd, similarCmd, dealsCmd, reviewsCmd, newsCmd, achievementsCmd, eventsCmd, userCmd, wishlistCmd, localesCmd, doctorCmd)
+	rootCmd.AddCommand(searchCmd, appCmd, priceCmd, mediaCmd, dlcCmd, similarCmd, dealsCmd, reviewsCmd, newsCmd, achievementsCmd, eventsCmd, historyCmd, storesCmd, userCmd, wishlistCmd, localesCmd, doctorCmd)
 }
 
 // sharedCache is a process-wide steam.Cache reused by every Client returned
