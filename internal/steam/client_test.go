@@ -68,7 +68,7 @@ func TestRetryAfterHTTPDate(t *testing.T) {
 
 func TestStoreAssetURL(t *testing.T) {
 	got := storeAssetURL("https://cdn.akamai.steamstatic.com", "steam/apps/264710/${FILENAME}?t=123", "library_600x900.jpg")
-	want := "https://cdn.akamai.steamstatic.com/steam/apps/264710/library_600x900.jpg?t=123"
+	want := "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/264710/library_600x900.jpg?t=123"
 	if got != want {
 		t.Fatalf("storeAssetURL() = %q, want %q", got, want)
 	}

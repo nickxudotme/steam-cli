@@ -916,6 +916,9 @@ func storeAssetURL(cdnBase, format, filename string) string {
 	if strings.HasPrefix(path, "//") {
 		return "https:" + path
 	}
+	if strings.HasPrefix(path, "steam/apps/") {
+		return "https://shared.akamai.steamstatic.com/store_item_assets/" + path
+	}
 	return cdnBase + "/" + strings.TrimLeft(path, "/")
 }
 
