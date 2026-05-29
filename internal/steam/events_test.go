@@ -1,6 +1,8 @@
 package steam
 
 import (
+	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -189,8 +191,17 @@ func TestParseSteamStoreSalePage(t *testing.T) {
 	if event.StartDate != "2026-02-12" || event.EndDate != "2026-02-26" {
 		t.Fatalf("dates = %s - %s, want PT sale dates", event.StartDate, event.EndDate)
 	}
+	if event.StartTime != 1770920340 || event.EndTime != 1772128800 {
+		t.Fatalf("unix times = %d - %d, want store event times", event.StartTime, event.EndTime)
+	}
 	if event.Source != "steam_store" || event.Category != "store_sale" || event.Timezone != "PT" {
 		t.Fatalf("source/category/timezone = %#v", event)
+	}
+	if event.StoreURL != "https://store.steampowered.com/sale/lny2026" {
+		t.Fatalf("store url = %q", event.StoreURL)
+	}
+	if event.GroupName != "蒸汽平台促销" {
+		t.Fatalf("group name = %q", event.GroupName)
 	}
 	if event.Description != "Steam Store sale page presented by 蒸汽平台促销." {
 		t.Fatalf("description = %q", event.Description)
@@ -201,6 +212,112 @@ func TestParseSteamStoreSalePage(t *testing.T) {
 	if event.BackgroundImageURL != "https://clan.akamai.steamstatic.com/images/39769908/background.jpg" {
 		t.Fatalf("background image url = %q", event.BackgroundImageURL)
 	}
+}
+
+func TestParseSteamStoreSalePageWithLocalizedJSONData(t *testing.T) {
+	jsonData := `{
+		"localized_sale_header":["Ocean Fest",null,null,null,null,null,"海洋游戏节"],
+		"localized_summary":["Games about the ocean.",null,null,null,null,null,"关于大海的游戏。"],
+		"localized_title_image":["title-en.jpg",null,null,null,null,null,"title-cn.jpg"],
+		"localized_capsule_image":["capsule-en.jpg",null,null,null,null,null,"capsule-cn.jpg"]
+	}`
+	storeEvents := []storeSaleEvent{
+		{
+			GID:                 "123456",
+			ClanSteamID:         "103582791469291316",
+			EventName:           "Ocean Fest",
+			EventType:           20,
+			StartTime:           1779123600,
+			EndTime:             1779728400,
+			JSONData:            jsonData,
+			LastModifiedTime:    1779000000,
+			VisibilityStartTime: 1778500000,
+			AnnouncementBody: &storeSaleAnnouncement{
+				GID:      "654321",
+				Headline: "Ocean Fest is live",
+			},
+		},
+	}
+	groups := []storeSaleGroup{
+		{ClanAccountID: 39769908, VanityURL: "store_promos", GroupName: "Steam Promotions"},
+	}
+	raw := `<div id="application_config" data-partnereventstore="` + escapedJSONAttr(t, storeEvents) + `" data-groupvanityinfo="` + escapedJSONAttr(t, groups) + `"></div>`
+
+	events := ParseSteamStoreSalePageWithLang(raw, "https://store.steampowered.com/sale/sale_ocean_2026", "schinese")
+	if len(events) != 1 {
+		t.Fatalf("len(ParseSteamStoreSalePageWithLang) = %d, want 1: %#v", len(events), events)
+	}
+
+	event := events[0]
+	if event.Name != "海洋游戏节" || event.Description != "关于大海的游戏。" {
+		t.Fatalf("localized name/description = %q / %q", event.Name, event.Description)
+	}
+	if event.TitleImageURL != "https://clan.akamai.steamstatic.com/images/39769908/title-cn.jpg" {
+		t.Fatalf("title image = %q", event.TitleImageURL)
+	}
+	if event.CapsuleImageURL != "https://clan.akamai.steamstatic.com/images/39769908/capsule-cn.jpg" {
+		t.Fatalf("capsule image = %q", event.CapsuleImageURL)
+	}
+	if event.EventGID != "123456" || event.EventType != 20 || event.LastModifiedTime != 1779000000 {
+		t.Fatalf("store metadata not populated: %#v", event)
+	}
+	if event.AnnouncementURL != "https://steamcommunity.com/gid/103582791469291316/announcements/detail/654321" {
+		t.Fatalf("announcement url = %q", event.AnnouncementURL)
+	}
+}
+
+func TestMergeStoreEventsEnrichesOfficialEvents(t *testing.T) {
+	official := []Event{
+		{
+			Name:        "Ocean Fest",
+			StartDate:   "2026-05-18",
+			EndDate:     "2026-05-25",
+			Source:      "steamworks",
+			Sources:     []string{"steamworks"},
+			Category:    "fest",
+			Timezone:    "PT",
+			Description: "Games about the ocean, whether above water or below.",
+		},
+	}
+	store := []Event{
+		{
+			Name:      "Steam Ocean Fest 2026",
+			StartDate: "2026-05-18",
+			EndDate:   "2026-05-25",
+			StartTime: 1779123600,
+			EndTime:   1779728400,
+			Source:    "steam_store",
+			Sources:   []string{"steam_store"},
+			StoreURL:  "https://store.steampowered.com/sale/sale_ocean_2026",
+			ImageURL:  "https://example.test/capsule.jpg",
+			EventGID:  "123456",
+			GroupName: "Steam Promotions",
+		},
+	}
+
+	merged := mergeStoreEvents(official, store)
+	if len(merged) != 1 {
+		t.Fatalf("len(mergeStoreEvents) = %d, want 1: %#v", len(merged), merged)
+	}
+	event := merged[0]
+	if event.Source != "steamworks" || strings.Join(event.Sources, ",") != "steamworks,steam_store" {
+		t.Fatalf("sources = source %q list %#v", event.Source, event.Sources)
+	}
+	if event.StartTime != 1779123600 || event.EndTime != 1779728400 || event.StoreURL == "" || event.ImageURL == "" {
+		t.Fatalf("store details missing after merge: %#v", event)
+	}
+	if event.Description != "Games about the ocean, whether above water or below." {
+		t.Fatalf("official description was overwritten: %q", event.Description)
+	}
+}
+
+func escapedJSONAttr(t *testing.T, value any) string {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	return html.EscapeString(string(payload))
 }
 
 func TestParseSteamStoreSaleURLs(t *testing.T) {
