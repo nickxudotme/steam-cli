@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"steam-cli/internal/i18n"
+	"steam-cli/internal/itad"
 	"steam-cli/internal/steam"
 	"steam-cli/internal/ui"
 
@@ -14,6 +15,15 @@ import (
 )
 
 var appNewsCount int
+var appOpts struct {
+	enhanced bool
+}
+
+type appResult struct {
+	*steam.AppBundle
+	PriceInsights *priceInsights `json:"price_insights,omitempty"`
+	itad          *itad.Summary
+}
 
 var appCmd = &cobra.Command{
 	Use:     "app APPID",
@@ -31,9 +41,19 @@ var appCmd = &cobra.Command{
 		if err != nil {
 			return nil, err
 		}
-		return bundle, nil
+		result := appResult{AppBundle: bundle}
+		if appOpts.enhanced {
+			summary, err := loadITADSummary(appid)
+			if err != nil {
+				return nil, err
+			}
+			result.itad = summary
+			result.PriceInsights = buildPriceInsights(summary)
+		}
+		return result, nil
 	}, func(value any) error {
-		bundle := value.(*steam.AppBundle)
+		result := value.(appResult)
+		bundle := result.AppBundle
 		appid := bundle.AppID
 
 		details := bundle.Details
@@ -54,6 +74,20 @@ var appCmd = &cobra.Command{
 		fmt.Println(ui.KeyValue(i18n.T("table.price"), priceDetail(details)))
 		if text := discountEndText(bundle.StoreItem); text != "" {
 			fmt.Println(ui.KeyValue(i18n.T("table.discount_ends"), text))
+		}
+		if result.PriceInsights != nil {
+			fmt.Println()
+			fmt.Println(ui.Section(i18n.T("section.price_insights")))
+			fmt.Println(ui.KeyValue(i18n.T("label.best_deal"), formatInsightDeal(result.PriceInsights.BestDeal)))
+			fmt.Println(ui.KeyValue(i18n.T("label.history_low"), historyLowText(result.PriceInsights.HistoryLow)))
+			fmt.Println(ui.KeyValue(i18n.T("label.best_ever_deal"), formatInsightHistoricDeal(result.PriceInsights.BestEverDeal)))
+			fmt.Println(ui.KeyValue(i18n.T("label.steam_store_low"), formatInsightHistoricDeal(result.PriceInsights.SteamStoreLow)))
+			fmt.Println(ui.KeyValue(i18n.T("label.bundle_count"), bundleCountText(result.PriceInsights)))
+			fmt.Println(ui.KeyValue(i18n.T("label.price_page"), empty(result.PriceInsights.PricePage)))
+			fmt.Println(ui.KeyValue(i18n.T("label.deal_link"), empty(result.PriceInsights.DealURL)))
+			if len(result.PriceInsights.Bundles) > 0 {
+				fmt.Println(ui.Table([]string{"ID", i18n.T("table.title"), i18n.T("table.price"), i18n.T("table.ends")}, insightBundleRows(result.PriceInsights.Bundles)))
+			}
 		}
 		if details.ShortDescription != "" {
 			fmt.Println()
@@ -136,7 +170,6 @@ var appCmd = &cobra.Command{
 			fmt.Println(ui.Section(i18n.T("section.official_links")))
 			fmt.Println(ui.Table([]string{i18n.T("table.type"), "URL"}, storeLinkRows(bundle.StoreItem.Links)))
 		}
-
 		if len(bundle.News) > 0 {
 			rows := make([][]string, 0, len(bundle.News))
 			for _, item := range bundle.News {
@@ -167,6 +200,9 @@ var appCmd = &cobra.Command{
 
 func init() {
 	appCmd.Flags().IntVar(&appNewsCount, "news", 3, "number of news items to include")
+	appCmd.Flags().BoolVar(&appOpts.enhanced, "enhanced", false, "include advanced price insights from the optional third-party pricing API")
+	appCmd.Flags().BoolVar(&appOpts.enhanced, "itad", false, "include advanced price insights from the optional third-party pricing API")
+	_ = appCmd.Flags().MarkHidden("itad")
 }
 
 func empty(value string) string {

@@ -17,19 +17,36 @@ const SteamStoreSpecials = "https://store.steampowered.com/specials"
 const maxDiscoveredStoreSalePages = 16
 
 type Event struct {
-	Name               string `json:"name"`
-	StartDate          string `json:"start_date"`
-	EndDate            string `json:"end_date"`
-	Status             string `json:"status"`
-	Source             string `json:"source"`
-	Category           string `json:"category"`
-	Timezone           string `json:"timezone"`
-	Description        string `json:"description,omitempty"`
-	Notes              string `json:"notes,omitempty"`
-	RegistrationURL    string `json:"registration_url,omitempty"`
-	InfoURL            string `json:"info_url,omitempty"`
-	ImageURL           string `json:"image_url,omitempty"`
-	BackgroundImageURL string `json:"background_image_url,omitempty"`
+	Name                 string   `json:"name"`
+	StartDate            string   `json:"start_date"`
+	EndDate              string   `json:"end_date"`
+	StartTime            int64    `json:"start_time,omitempty"`
+	EndTime              int64    `json:"end_time,omitempty"`
+	Status               string   `json:"status"`
+	Source               string   `json:"source"`
+	Sources              []string `json:"sources,omitempty"`
+	Category             string   `json:"category"`
+	Timezone             string   `json:"timezone"`
+	Description          string   `json:"description,omitempty"`
+	Notes                string   `json:"notes,omitempty"`
+	RegistrationURL      string   `json:"registration_url,omitempty"`
+	InfoURL              string   `json:"info_url,omitempty"`
+	StoreURL             string   `json:"store_url,omitempty"`
+	EventGID             string   `json:"event_gid,omitempty"`
+	ClanSteamID          string   `json:"clan_steamid,omitempty"`
+	EventType            int      `json:"event_type,omitempty"`
+	AppID                int      `json:"appid,omitempty"`
+	GroupName            string   `json:"group_name,omitempty"`
+	GroupURL             string   `json:"group_url,omitempty"`
+	AnnouncementHeadline string   `json:"announcement_headline,omitempty"`
+	AnnouncementURL      string   `json:"announcement_url,omitempty"`
+	LastModifiedTime     int64    `json:"last_modified_time,omitempty"`
+	VisibilityStartTime  int64    `json:"visibility_start_time,omitempty"`
+	VisibilityEndTime    int64    `json:"visibility_end_time,omitempty"`
+	ImageURL             string   `json:"image_url,omitempty"`
+	TitleImageURL        string   `json:"title_image_url,omitempty"`
+	CapsuleImageURL      string   `json:"capsule_image_url,omitempty"`
+	BackgroundImageURL   string   `json:"background_image_url,omitempty"`
 }
 
 type EventQuery struct {
@@ -58,12 +75,12 @@ func (c *Client) Events(query EventQuery) ([]Event, error) {
 	if lang == "" {
 		lang = "english"
 	}
-	parsed, err := c.steamworksEvents(lang)
+	parsed, saleURLs, err := c.steamworksEventsAndSaleURLs(lang)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch live Steamworks upcoming events: %w", err)
 	}
 	if len(parsed) == 0 && !strings.EqualFold(lang, "english") {
-		parsed, err = c.steamworksEvents("english")
+		parsed, saleURLs, err = c.steamworksEventsAndSaleURLs("english")
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch live Steamworks upcoming events: %w", err)
 		}
@@ -72,23 +89,29 @@ func (c *Client) Events(query EventQuery) ([]Event, error) {
 		return nil, fmt.Errorf("no live Steamworks events could be parsed from %s", SteamworksUpcomingEvents)
 	}
 	if query.IncludeStoreSales {
-		if storeEvents, err := c.storeSaleEvents(query, lang); err == nil {
-			parsed = append(parsed, storeEvents...)
+		if storeEvents, err := c.storeSaleEvents(query, lang, saleURLs); err == nil {
+			parsed = mergeStoreEvents(parsed, storeEvents)
 		}
 	}
 	return FilterEvents(parsed, query), nil
 }
 
 func (c *Client) steamworksEvents(lang string) ([]Event, error) {
-	body, err := c.GetText(SteamworksUpcomingEvents, url.Values{"l": {lang}})
-	if err != nil {
-		return nil, err
-	}
-	return ParseSteamworksEvents(body), nil
+	events, _, err := c.steamworksEventsAndSaleURLs(lang)
+	return events, err
 }
 
-func (c *Client) storeSaleEvents(query EventQuery, lang string) ([]Event, error) {
+func (c *Client) steamworksEventsAndSaleURLs(lang string) ([]Event, []string, error) {
+	body, err := c.GetText(SteamworksUpcomingEvents, url.Values{"l": {lang}})
+	if err != nil {
+		return nil, nil, err
+	}
+	return ParseSteamworksEvents(body), ParseSteamStoreSaleURLs(body, c.Endpoints.Store), nil
+}
+
+func (c *Client) storeSaleEvents(query EventQuery, lang string, seedURLs []string) ([]Event, error) {
 	saleURLs := c.storeSaleCandidateURLs(query)
+	saleURLs = append(saleURLs, seedURLs...)
 	if discovered, err := c.storeSaleURLsFromSpecials(lang); err == nil {
 		saleURLs = append(saleURLs, discovered...)
 	}
@@ -99,7 +122,7 @@ func (c *Client) storeSaleEvents(query EventQuery, lang string) ([]Event, error)
 		if err != nil {
 			continue
 		}
-		events = append(events, ParseSteamStoreSalePage(body, saleURL)...)
+		events = append(events, ParseSteamStoreSalePageWithLang(body, saleURL, lang)...)
 	}
 	return dedupeEvents(events), nil
 }
@@ -175,6 +198,98 @@ func FilterEvents(events []Event, query EventQuery) []Event {
 	return filtered
 }
 
+func mergeStoreEvents(events, storeEvents []Event) []Event {
+	merged := append([]Event(nil), events...)
+	for _, storeEvent := range storeEvents {
+		if index := matchingEventIndex(merged, storeEvent); index >= 0 {
+			mergeEventDetails(&merged[index], storeEvent)
+			continue
+		}
+		merged = append(merged, storeEvent)
+	}
+	return dedupeEvents(merged)
+}
+
+func matchingEventIndex(events []Event, storeEvent Event) int {
+	for index, event := range events {
+		if event.StoreURL != "" && event.StoreURL == storeEvent.StoreURL {
+			return index
+		}
+		if event.StartDate != storeEvent.StartDate || event.EndDate != storeEvent.EndDate {
+			continue
+		}
+		if similarEventName(event.Name, storeEvent.Name) {
+			return index
+		}
+	}
+	return -1
+}
+
+func similarEventName(a, b string) bool {
+	a = eventMatchName(a)
+	b = eventMatchName(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || strings.Contains(a, b) || strings.Contains(b, a)
+}
+
+func eventMatchName(value string) string {
+	value = strings.ToLower(cleanText(value))
+	value = regexp.MustCompile(`\b20\d{2}\b`).ReplaceAllString(value, "")
+	value = strings.NewReplacer("steam", "", "sale", "", "fest", "", "特卖", "", "游戏节", "", "新品节", "next").Replace(value)
+	value = regexp.MustCompile(`[^a-z0-9\p{Han}]+`).ReplaceAllString(value, "")
+	return strings.TrimSpace(value)
+}
+
+func mergeEventDetails(target *Event, storeEvent Event) {
+	target.Sources = appendUniqueStrings(target.Sources, "steamworks", "steam_store")
+	copyStringIfEmpty(&target.StoreURL, storeEvent.StoreURL)
+	copyStringIfEmpty(&target.EventGID, storeEvent.EventGID)
+	copyStringIfEmpty(&target.ClanSteamID, storeEvent.ClanSteamID)
+	copyStringIfEmpty(&target.GroupName, storeEvent.GroupName)
+	copyStringIfEmpty(&target.GroupURL, storeEvent.GroupURL)
+	copyStringIfEmpty(&target.AnnouncementHeadline, storeEvent.AnnouncementHeadline)
+	copyStringIfEmpty(&target.AnnouncementURL, storeEvent.AnnouncementURL)
+	copyStringIfEmpty(&target.ImageURL, storeEvent.ImageURL)
+	copyStringIfEmpty(&target.TitleImageURL, storeEvent.TitleImageURL)
+	copyStringIfEmpty(&target.CapsuleImageURL, storeEvent.CapsuleImageURL)
+	copyStringIfEmpty(&target.BackgroundImageURL, storeEvent.BackgroundImageURL)
+	if target.StartTime == 0 {
+		target.StartTime = storeEvent.StartTime
+	}
+	if target.EndTime == 0 {
+		target.EndTime = storeEvent.EndTime
+	}
+	if target.EventType == 0 {
+		target.EventType = storeEvent.EventType
+	}
+	if target.AppID == 0 {
+		target.AppID = storeEvent.AppID
+	}
+	if target.LastModifiedTime == 0 {
+		target.LastModifiedTime = storeEvent.LastModifiedTime
+	}
+	if target.VisibilityStartTime == 0 {
+		target.VisibilityStartTime = storeEvent.VisibilityStartTime
+	}
+	if target.VisibilityEndTime == 0 {
+		target.VisibilityEndTime = storeEvent.VisibilityEndTime
+	}
+	if target.Description == "" || target.Description == categoryDescription(target.Category) {
+		target.Description = storeEvent.Description
+	}
+	if target.Notes == "" {
+		target.Notes = storeEvent.Notes
+	}
+}
+
+func copyStringIfEmpty(target *string, value string) {
+	if *target == "" {
+		*target = value
+	}
+}
+
 func ParseSteamworksEvents(raw string) []Event {
 	raw = html.UnescapeString(raw)
 	doc := documentationSection(raw)
@@ -199,6 +314,12 @@ func ParseSteamworksEvents(raw string) []Event {
 // ParseSteamStoreSalePage extracts the top-level event metadata embedded in
 // public Steam Store sale pages such as /sale/lny2026.
 func ParseSteamStoreSalePage(raw, pageURL string) []Event {
+	return ParseSteamStoreSalePageWithLang(raw, pageURL, "english")
+}
+
+// ParseSteamStoreSalePageWithLang extracts the top-level event metadata
+// embedded in public Steam Store sale pages such as /sale/lny2026.
+func ParseSteamStoreSalePageWithLang(raw, pageURL, lang string) []Event {
 	attr := htmlDataAttr(raw, "data-partnereventstore")
 	if attr == "" {
 		return nil
@@ -212,7 +333,7 @@ func ParseSteamStoreSalePage(raw, pageURL string) []Event {
 		return nil
 	}
 
-	groupName := storeSaleGroupName(raw)
+	group := storeSaleGroupInfo(raw)
 	title := metaContent(raw, "og:title")
 	imageURL := metaContent(raw, "og:image")
 	if imageURL == "" {
@@ -223,26 +344,81 @@ func ParseSteamStoreSalePage(raw, pageURL string) []Event {
 		if storeEvent.EventName == "" || storeEvent.StartTime == 0 || storeEvent.EndTime == 0 {
 			continue
 		}
+		details := storeEventDetails(storeEvent, group, lang)
 		name := storeEvent.EventName
 		if title != "" && !strings.EqualFold(title, "Steam") {
 			name = title
 		}
+		if details.Title != "" {
+			name = details.Title
+		}
+		description := details.Description
+		if description == "" {
+			description = metaContent(raw, "og:description")
+		}
+		if description == "" {
+			description = metaContent(raw, "description")
+		}
+		if strings.EqualFold(description, "Steam is the ultimate destination for playing, discussing, and creating games.") ||
+			strings.EqualFold(description, name) ||
+			strings.EqualFold(description, title) ||
+			strings.EqualFold(description, storeEvent.EventName) ||
+			strings.EqualFold(description, details.Title) {
+			description = ""
+		}
+		if description == "" && details.AnnouncementHeadline != "" &&
+			!strings.EqualFold(details.AnnouncementHeadline, name) &&
+			!strings.EqualFold(details.AnnouncementHeadline, title) &&
+			!strings.EqualFold(details.AnnouncementHeadline, storeEvent.EventName) &&
+			!strings.EqualFold(details.AnnouncementHeadline, details.Title) {
+			description = details.AnnouncementHeadline
+		}
+		if description == "" && group.GroupName != "" {
+			description = "Steam Store sale page presented by " + group.GroupName + "."
+		}
+		if description == "" {
+			description = "Steam Store sale page."
+		}
+		if imageURL == "" {
+			imageURL = details.CapsuleImageURL
+		}
+		if backgroundURL == "" {
+			backgroundURL = details.BackgroundImageURL
+		}
 
 		event := Event{
-			Name:               cleanText(name),
-			StartDate:          unixDateInPacific(storeEvent.StartTime),
-			EndDate:            unixDateInPacific(storeEvent.EndTime),
-			Source:             "steam_store",
-			Category:           "store_sale",
-			Timezone:           "PT",
-			Description:        "Steam Store sale page.",
-			InfoURL:            pageURL,
-			ImageURL:           imageURL,
-			BackgroundImageURL: backgroundURL,
+			Name:                 cleanText(name),
+			StartDate:            unixDateInPacific(storeEvent.StartTime),
+			EndDate:              unixDateInPacific(storeEvent.EndTime),
+			StartTime:            storeEvent.StartTime,
+			EndTime:              storeEvent.EndTime,
+			Source:               "steam_store",
+			Sources:              []string{"steam_store"},
+			Category:             "store_sale",
+			Timezone:             "PT",
+			Description:          description,
+			InfoURL:              pageURL,
+			StoreURL:             pageURL,
+			EventGID:             storeEvent.GID,
+			ClanSteamID:          storeEvent.ClanSteamID,
+			EventType:            storeEvent.EventType,
+			AppID:                storeEvent.AppID,
+			GroupName:            group.GroupName,
+			GroupURL:             group.URL(storeEvent.ClanSteamID),
+			AnnouncementHeadline: details.AnnouncementHeadline,
+			AnnouncementURL:      details.AnnouncementURL,
+			LastModifiedTime:     storeEvent.LastModifiedTime,
+			VisibilityStartTime:  storeEvent.VisibilityStartTime,
+			VisibilityEndTime:    storeEvent.VisibilityEndTime,
+			ImageURL:             imageURL,
+			TitleImageURL:        details.TitleImageURL,
+			CapsuleImageURL:      details.CapsuleImageURL,
+			BackgroundImageURL:   backgroundURL,
 		}
-		if groupName != "" {
-			event.Description = "Steam Store sale page presented by " + groupName + "."
-			event.Notes = event.Description
+		if details.Notes != "" {
+			event.Notes = details.Notes
+		} else if group.GroupName != "" {
+			event.Notes = "Steam Store sale page presented by " + group.GroupName + "."
 		}
 		return []Event{event}
 	}
@@ -486,6 +662,7 @@ func eventFromDates(name string, start, end time.Time, category string) Event {
 		StartDate:   start.Format(time.DateOnly),
 		EndDate:     end.Format(time.DateOnly),
 		Source:      "steamworks",
+		Sources:     []string{"steamworks"},
 		Category:    category,
 		Timezone:    "PT",
 		Description: categoryDescription(category),
@@ -638,13 +815,69 @@ func eventStatus(today, start, end time.Time) string {
 }
 
 type storeSaleEvent struct {
-	EventName string `json:"event_name"`
-	StartTime int64  `json:"rtime32_start_time"`
-	EndTime   int64  `json:"rtime32_end_time"`
+	GID                 string                 `json:"gid"`
+	ClanSteamID         string                 `json:"clan_steamid"`
+	EventName           string                 `json:"event_name"`
+	EventType           int                    `json:"event_type"`
+	AppID               int                    `json:"appid"`
+	StartTime           int64                  `json:"rtime32_start_time"`
+	EndTime             int64                  `json:"rtime32_end_time"`
+	EventNotes          string                 `json:"event_notes"`
+	JSONData            string                 `json:"jsondata"`
+	AnnouncementBody    *storeSaleAnnouncement `json:"announcement_body"`
+	LastModifiedTime    int64                  `json:"rtime32_last_modified"`
+	VisibilityStartTime int64                  `json:"rtime32_visibility_start"`
+	VisibilityEndTime   int64                  `json:"rtime32_visibility_end"`
 }
 
 type storeSaleGroup struct {
-	GroupName string `json:"group_name"`
+	ClanAccountID int64  `json:"clanAccountID"`
+	VanityURL     string `json:"vanity_url"`
+	GroupName     string `json:"group_name"`
+	AvatarFullURL string `json:"avatar_full_url"`
+}
+
+func (g storeSaleGroup) URL(clanSteamID string) string {
+	if g.VanityURL != "" {
+		return "https://steamcommunity.com/groups/" + g.VanityURL
+	}
+	if clanSteamID != "" {
+		return "https://steamcommunity.com/gid/" + clanSteamID
+	}
+	return ""
+}
+
+type storeSaleAnnouncement struct {
+	GID        string `json:"gid"`
+	ClanID     string `json:"clanid"`
+	Headline   string `json:"headline"`
+	Body       string `json:"body"`
+	PostTime   int64  `json:"posttime"`
+	UpdateTime int64  `json:"updatetime"`
+}
+
+type storeSaleJSONData struct {
+	LocalizedSubtitle     []string `json:"localized_subtitle"`
+	LocalizedSummary      []string `json:"localized_summary"`
+	LocalizedTitleImage   []string `json:"localized_title_image"`
+	LocalizedCapsuleImage []string `json:"localized_capsule_image"`
+	LocalizedSaleHeader   []string `json:"localized_sale_header"`
+	LocalizedSaleLogo     []string `json:"localized_sale_logo"`
+	SaleVanityID          string   `json:"sale_vanity_id"`
+	SaleBackgroundColor   string   `json:"sale_background_color"`
+	SaleAssociatedAppID   int      `json:"sale_associated_advertising_appid"`
+	ReferencedAppIDs      []int    `json:"referenced_appids"`
+}
+
+type storeSaleDetails struct {
+	Title                string
+	Description          string
+	Notes                string
+	TitleImageURL        string
+	CapsuleImageURL      string
+	BackgroundImageURL   string
+	AnnouncementHeadline string
+	AnnouncementURL      string
 }
 
 func htmlDataAttr(raw, name string) string {
@@ -674,16 +907,181 @@ func storeSaleBackgroundURL(raw string) string {
 	return cleanText(html.UnescapeString(match[1]))
 }
 
-func storeSaleGroupName(raw string) string {
+func storeSaleGroupInfo(raw string) storeSaleGroup {
 	attr := htmlDataAttr(raw, "data-groupvanityinfo")
 	if attr == "" {
-		return ""
+		return storeSaleGroup{}
 	}
 	var groups []storeSaleGroup
 	if err := json.Unmarshal([]byte(attr), &groups); err != nil || len(groups) == 0 {
+		return storeSaleGroup{}
+	}
+	groups[0].GroupName = cleanText(groups[0].GroupName)
+	groups[0].AvatarFullURL = cleanText(groups[0].AvatarFullURL)
+	return groups[0]
+}
+
+func storeEventDetails(event storeSaleEvent, group storeSaleGroup, lang string) storeSaleDetails {
+	details := storeSaleDetails{}
+	if event.AnnouncementBody != nil {
+		details.AnnouncementHeadline = cleanText(event.AnnouncementBody.Headline)
+		details.AnnouncementURL = announcementURL(event, event.AnnouncementBody.GID)
+	}
+	notes := cleanText(event.EventNotes)
+	if notes != "" && !strings.EqualFold(notes, "see announcement body") {
+		details.Notes = notes
+	}
+	if event.JSONData == "" {
+		if details.Description == "" && event.AnnouncementBody != nil {
+			details.Description = announcementSummary(event.AnnouncementBody.Body)
+		}
+		return details
+	}
+
+	var data storeSaleJSONData
+	if err := json.Unmarshal([]byte(event.JSONData), &data); err != nil {
+		return details
+	}
+	details.Title = localizedText(data.LocalizedSaleHeader, lang)
+	if details.Title == "" {
+		details.Title = localizedText(data.LocalizedSubtitle, lang)
+	}
+	details.Description = localizedText(data.LocalizedSummary, lang)
+	if details.Description == "" && event.AnnouncementBody != nil {
+		details.Description = announcementSummary(event.AnnouncementBody.Body)
+	}
+	details.TitleImageURL = clanImageURL(group.ClanAccountID, localizedText(data.LocalizedTitleImage, lang))
+	details.CapsuleImageURL = clanImageURL(group.ClanAccountID, localizedText(data.LocalizedCapsuleImage, lang))
+	if details.TitleImageURL == "" {
+		details.TitleImageURL = clanImageURL(group.ClanAccountID, localizedText(data.LocalizedSaleLogo, lang))
+	}
+	return details
+}
+
+func announcementURL(event storeSaleEvent, announcementGID string) string {
+	if announcementGID == "" || event.ClanSteamID == "" {
 		return ""
 	}
-	return cleanText(groups[0].GroupName)
+	return "https://steamcommunity.com/gid/" + event.ClanSteamID + "/announcements/detail/" + announcementGID
+}
+
+func clanImageURL(clanAccountID int64, value string) string {
+	value = cleanText(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return value
+	}
+	if clanAccountID <= 0 {
+		return value
+	}
+	return fmt.Sprintf("https://clan.akamai.steamstatic.com/images/%d/%s", clanAccountID, value)
+}
+
+func localizedText(values []string, lang string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	if index, ok := steamLanguageIndex(lang); ok && index >= 0 && index < len(values) {
+		if value := cleanText(values[index]); value != "" {
+			return value
+		}
+	}
+	for _, value := range values {
+		if value := cleanText(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func steamLanguageIndex(lang string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "english", "en":
+		return 0, true
+	case "german", "de":
+		return 1, true
+	case "french", "fr":
+		return 2, true
+	case "italian", "it":
+		return 3, true
+	case "koreana", "korean", "ko":
+		return 4, true
+	case "spanish", "es":
+		return 5, true
+	case "schinese", "chinese", "zh-cn":
+		return 6, true
+	case "tchinese", "zh-tw":
+		return 7, true
+	case "russian", "ru":
+		return 8, true
+	case "thai", "th":
+		return 9, true
+	case "japanese", "ja":
+		return 10, true
+	case "portuguese", "pt":
+		return 11, true
+	case "polish", "pl":
+		return 12, true
+	case "danish", "da":
+		return 13, true
+	case "dutch", "nl":
+		return 14, true
+	case "finnish", "fi":
+		return 15, true
+	case "norwegian", "no":
+		return 16, true
+	case "swedish", "sv":
+		return 17, true
+	case "hungarian", "hu":
+		return 18, true
+	case "czech", "cs":
+		return 19, true
+	case "romanian", "ro":
+		return 20, true
+	case "turkish", "tr":
+		return 21, true
+	case "arabic", "ar":
+		return 22, true
+	case "bulgarian", "bg":
+		return 23, true
+	case "greek", "el":
+		return 24, true
+	case "vietnamese", "vi":
+		return 25, true
+	case "latam":
+		return 27, true
+	case "brazilian", "pt-br":
+		return 28, true
+	}
+	return 0, false
+}
+
+func announcementSummary(value string) string {
+	value = cleanBBCode(value)
+	if value == "" {
+		return ""
+	}
+	paragraphs := regexp.MustCompile(`\n{2,}`).Split(value, -1)
+	for _, paragraph := range paragraphs {
+		paragraph = cleanText(paragraph)
+		if paragraph != "" {
+			return paragraph
+		}
+	}
+	return cleanText(value)
+}
+
+func cleanBBCode(value string) string {
+	value = strings.ReplaceAll(value, `\/`, `/`)
+	value = regexp.MustCompile(`(?is)\[dynamiclink[^\]]*\].*?\[/dynamiclink\]`).ReplaceAllString(value, " ")
+	value = regexp.MustCompile(`(?is)\[(?:img|previewyoutube|video)[^\]]*\].*?\[/(?:img|previewyoutube|video)\]`).ReplaceAllString(value, " ")
+	value = regexp.MustCompile(`(?is)\[(?:h1|h2|h3|p|list|olist|quote|b|i|u|url|code|table|tr|td|th|color|size|spoiler|strike|noparse)[^\]]*\]`).ReplaceAllString(value, " ")
+	value = regexp.MustCompile(`(?is)\[/(?:h1|h2|h3|p|list|olist|quote|b|i|u|url|code|table|tr|td|th|color|size|spoiler|strike|noparse)\]`).ReplaceAllString(value, "\n\n")
+	value = regexp.MustCompile(`(?is)\[[^\]]+\]`).ReplaceAllString(value, " ")
+	value = html.UnescapeString(value)
+	return strings.TrimSpace(value)
 }
 
 func unixDateInPacific(value int64) string {
@@ -729,6 +1127,10 @@ func uniqueStrings(values []string) []string {
 		unique = append(unique, value)
 	}
 	return unique
+}
+
+func appendUniqueStrings(values []string, extra ...string) []string {
+	return uniqueStrings(append(values, extra...))
 }
 
 func parseISODate(value string) (time.Time, error) {

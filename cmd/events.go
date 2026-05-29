@@ -190,6 +190,14 @@ func hasEventSource(events []steam.Event, source string) bool {
 		if event.Source == source {
 			return true
 		}
+		for _, eventSource := range event.Sources {
+			if eventSource == source {
+				return true
+			}
+		}
+		if source == "steam_store" && event.StoreURL != "" {
+			return true
+		}
 	}
 	return false
 }

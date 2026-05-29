@@ -12,6 +12,7 @@ The goal is to replace common Steam web lookups from the terminal while keeping 
 - Store search first, so users can find an appid from a game name before querying app-specific data.
 - Price lookup with `--cc` and `--lang`.
 - Regional price comparison with `price --compare CN,US,JP`.
+- Optional IsThereAnyDeal enhancement for cross-store best deals, price history, Steam store lows, shop lookup, and price-history commands.
 - `doctor` checks core Steam data sources and current locale/network settings.
 - `--quiet` for script-friendly output and `--no-color` for plain terminals or CI logs.
 - Bilingual CLI prompts with `--ui-lang auto|en|zh-CN`, defaulting from `LC_ALL`, `LC_MESSAGES`, or `LANG`.
@@ -43,7 +44,10 @@ go build -o steam-cli .
 --no-color  Disable ANSI color
 --verbose   Print retry and diagnostic messages to stderr
 --ui-lang   Steam CLI interface language. Default: auto
+--itad-key  Advanced pricing API key. Default: STEAM_CLI_ITAD_KEY
 ```
+
+Get an IsThereAnyDeal API key from <https://isthereanydeal.com/apps/> before using `--itad-key` or `STEAM_CLI_ITAD_KEY`.
 
 `--cc auto` and `--lang auto` read your system locale, in order:
 
@@ -62,7 +66,10 @@ Examples:
 ./steam-cli price 264710                          # auto-detected region
 ./steam-cli price 264710 --cc US                  # force US pricing
 ./steam-cli price 264710 --compare CN,US,JP
+./steam-cli price 264710 --enhanced --cc US
 ./steam-cli app 264710 --json
+./steam-cli history 264710 --days 30
+./steam-cli history 264710 --all-stores
 ./steam-cli doctor
 ./steam-cli --ui-lang zh-CN search "赛博朋克 2077"
 ./steam-cli locales
@@ -76,8 +83,8 @@ Examples:
 | Command | Description | Main data sources |
 | --- | --- | --- |
 | [`search TERM`](#search) | Search Steam Store games and discover appids | [`storesearch`][source-storesearch] |
-| [`app APPID`](#app) | App overview, price, discount end time, reviews, tags, Deck status, rating, links, purchase options, media, news | [`appdetails`][source-appdetails], [`IStoreBrowseService/GetItems`][source-storebrowse], [`appreviews`][source-appreviews], [`GetNumberOfCurrentPlayers`][source-currentplayers], [`GetNewsForApp`][source-news] |
-| [`price APPID`](#price) | Price, regional pricing, discount, discount end time; `--compare` compares regions | [`appdetails`][source-appdetails], [`IStoreBrowseService/GetItems`][source-storebrowse] |
+| [`app APPID`](#app) | App overview, price, discount end time, reviews, tags, Deck status, rating, links, purchase options, media, news; `--enhanced` adds advanced pricing insights | [`appdetails`][source-appdetails], [`IStoreBrowseService/GetItems`][source-storebrowse], [`appreviews`][source-appreviews], [`GetNumberOfCurrentPlayers`][source-currentplayers], [`GetNewsForApp`][source-news], [advanced pricing lookup][source-itad-lookup] |
+| [`price APPID`](#price) | Price, regional pricing, discount, discount end time; `--compare` compares regions; `--enhanced` adds advanced pricing insights | [`appdetails`][source-appdetails], [`IStoreBrowseService/GetItems`][source-storebrowse], [advanced pricing lookup][source-itad-lookup] |
 | [`media APPID`](#media) | CDN assets, 2x images, screenshots, trailers, achievement icons; `--probe` checks HTTP status | [`appdetails`][source-appdetails], [`IStoreBrowseService/GetItems`][source-storebrowse], [Steam CDN][source-cdn] |
 | [`dlc APPID`](#dlc) | DLC list with current price, discount, reviews, release date | [`appdetails.dlc`][source-appdetails] + batch [`IStoreBrowseService/GetItems`][source-storebrowse] |
 | [`similar APPID`](#similar) | Similar/recommended games | [`IStoreQueryService/MoreLikeThis`][source-morelikethis] |
@@ -87,6 +94,7 @@ Examples:
 | [`news APPID`](#news) | Steam news, announcements, community events | [`GetNewsForApp`][source-news] |
 | [`achievements APPID`](#achievements) | Global achievement unlock percentages | [`GetGlobalAchievementPercentagesForApp`][source-achievements] |
 | [`events`](#events) | Steam seasonal sales, fests, Next Fest, upcoming events | [Steamworks Upcoming Steam Events][source-steamworks-events] |
+| [`history APPID`](#history) | Steam price history for an app, with optional all-store expansion | [advanced pricing history][source-itad-history] |
 | [`user USER`](#user) | Public Steam Community profile | [Community profile XML][source-community-xml] |
 | [`wishlist USER`](#wishlist) | Public wishlist with optional app details | [`IWishlistService/GetWishlist`][source-wishlist] + [`appdetails`][source-appdetails] |
 | [`doctor`](#doctor) | Data-source reachability, current locale, timeout, and network checks | Steam Store, Steam Web API, Steam Community, Steamworks |
@@ -183,6 +191,42 @@ Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 1
 ```
 
 The discount end time comes from `IStoreBrowseService/GetItems` field `active_discounts[].discount_end_date`. JSON keeps event times such as `discount_end` and `release_time` as Unix seconds. Steam's current public response does not expose an authoritative discount start time. A start time can only be inferred from related event windows or observed by tracking price changes over time.
+
+### Advanced Price Enhancement
+
+Advanced pricing uses IsThereAnyDeal. Create an API key at <https://isthereanydeal.com/apps/>, then pass it with `--itad-key` or `STEAM_CLI_ITAD_KEY`.
+
+```bash
+STEAM_CLI_ITAD_KEY=your_key ./steam-cli price 264710 --enhanced --cc US
+STEAM_CLI_ITAD_KEY=your_key ./steam-cli app 264710 --enhanced --news 0
+```
+
+`--enhanced` adds optional advanced pricing data without changing the default Steam-only path. The current implementation adds:
+
+- Cross-store best current deal
+- Historical best-ever deal
+- Multi-window historical low snapshots
+- Steam store low from the third-party price history backend
+- A price page URL and current deal URL
+
+`--enhanced` currently does not combine with `price --compare`; use one or the other in the current release.
+
+<a id="history"></a>
+
+### Price History
+
+```bash
+STEAM_CLI_ITAD_KEY=your_key ./steam-cli history 264710
+STEAM_CLI_ITAD_KEY=your_key ./steam-cli history 264710 --days 30
+STEAM_CLI_ITAD_KEY=your_key ./steam-cli history 264710 --all-stores
+STEAM_CLI_ITAD_KEY=your_key ./steam-cli history 264710 --sales
+```
+
+`history` stays Steam-first: by default it shows Steam store price changes for the app. Add `--all-stores` to expand the view to authorized non-Steam sellers handled by the pricing backend.
+
+Use `--sales` when you want historical discount windows rather than raw price-change points. This view infers when a discounted phase started and when the next price change ended it.
+
+In `--json` mode, both raw history entries and inferred sales windows also include precise RFC3339 timestamps and Unix timestamps for scripting.
 
 <a id="media"></a>
 
@@ -340,12 +384,10 @@ User data is read only from public profile XML. Steam CLI does not bypass privac
 ./steam-cli events --past-days 15 --future-days 90
 ```
 
-The events command parses the official Steamworks Upcoming Steam Events page plus public Steam Store sale pages (for example Lunar New Year pages) and returns event name, date range, status, type, PT timezone marker, description/eligibility notes, registration link, and more-info link. Use `--store-sales=false` to show only the Steamworks event calendar.
+The events command parses the official Steamworks Upcoming Steam Events page plus public Steam Store sale pages (for example Lunar New Year pages) and returns event name, date range, status, type, PT timezone marker, description/eligibility notes, registration link, and more-info link. When a Store sale page exposes embedded event metadata, JSON also includes exact Unix `start_time`/`end_time`, `store_url`, event/group ids, announcement link, and image assets such as `image_url`, `title_image_url`, `capsule_image_url`, and `background_image_url`. Use `--store-sales=false` to show only the Steamworks event calendar.
 By default it uses a broad window (`--past-days 365 --future-days 365`) so annual sale pages remain visible after they end; narrow the window with flags when you only want near-term events.
 
-The terminal table shows the 6 most useful columns (Start, End, Status, Category, Event, Description). Use `--json` to see the full payload including `registration_url`, `info_url`, `notes`, and `timezone`.
-
-The terminal table shows the 6 most useful columns (Start, End, Status, Category, Event, Description). Use `--json` to see the full payload including `registration_url`, `info_url`, `notes`, and `timezone`.
+The terminal table shows the 6 most useful columns (Start, End, Status, Category, Event, Description). Use `--json` to see the full payload including `registration_url`, `info_url`, `store_url`, `notes`, precise times, and image URLs.
 
 ## JSON Output
 
@@ -445,6 +487,9 @@ New commands only need to use the internal `runCommand(load, render)` wrapper. J
 
 Steam CLI uses public, live sources by default and does not require a Steam API key.
 
+Optional advanced pricing commands and `--enhanced` features require a third-party pricing API key via `--itad-key` or `STEAM_CLI_ITAD_KEY`.
+Create one at <https://isthereanydeal.com/apps/>.
+
 | Source | Used for |
 | --- | --- |
 | [`https://store.steampowered.com/api/appdetails`][source-appdetails] | Basic app details, regional price, DLC appids, screenshots, movies, language HTML, categories, developers/publishers |
@@ -462,6 +507,12 @@ Steam CLI uses public, live sources by default and does not require a Steam API 
 | [`https://steamcommunity.com/profiles/{steamid64}/?xml=1`][source-community-xml] | Public profile XML |
 | [`https://api.steampowered.com/IWishlistService/GetWishlist/v1/`][source-wishlist] | Public wishlist appids, priority, date added |
 | [Steam CDN][source-cdn], e.g. `https://cdn.akamai.steamstatic.com/steam/apps/{appid}/...` | App image assets |
+| [`https://api.isthereanydeal.com/games/lookup/v1`][source-itad-lookup] | Map Steam appids to the advanced pricing backend's game IDs |
+| [`https://api.isthereanydeal.com/games/overview/v2`][source-itad-overview] | Advanced best-deal snapshot, bundle references, and cross-store comparisons |
+| [`https://api.isthereanydeal.com/games/history/v2`][source-itad-history] | Advanced price-change history log |
+| [`https://api.isthereanydeal.com/games/historylow/v1`][source-itad-historylow] | Multi-window historical low snapshots |
+| [`https://api.isthereanydeal.com/games/storelow/v2`][source-itad-storelow] | Store-specific historical low, such as Steam store low |
+| [`https://api.isthereanydeal.com/service/shops/v1`][source-itad-shops] | Internal shop mapping used by the advanced pricing backend |
 
 ## Notes from SteamKit and SteamCMD
 
@@ -558,3 +609,9 @@ Live commands verified during development:
 [source-wishlist]: https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid=76561198115468824
 [source-cdn]: https://cdn.akamai.steamstatic.com/steam/apps/264710/library_600x900.jpg
 [source-store-home]: https://store.steampowered.com/?l=english
+[source-itad-lookup]: https://api.isthereanydeal.com/games/lookup/v1
+[source-itad-overview]: https://api.isthereanydeal.com/games/overview/v2
+[source-itad-history]: https://api.isthereanydeal.com/games/history/v2
+[source-itad-historylow]: https://api.isthereanydeal.com/games/historylow/v1
+[source-itad-storelow]: https://api.isthereanydeal.com/games/storelow/v2
+[source-itad-shops]: https://api.isthereanydeal.com/service/shops/v1
