@@ -45,6 +45,8 @@ go build -o steam-cli .
 --itad-key  高级价格增强 API key。默认读取 STEAM_CLI_ITAD_KEY
 ```
 
+使用 `--itad-key` 或 `STEAM_CLI_ITAD_KEY` 前，需要先在 <https://isthereanydeal.com/apps/> 申请 IsThereAnyDeal API key。
+
 `--cc auto` 与 `--lang auto` 按以下顺序读取系统区域:
 
 1. `LC_ALL` / `LC_MESSAGES` / `LC_MONETARY` / `LANG` 环境变量。
@@ -187,6 +189,8 @@ Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 1
 折扣结束时间来自 `IStoreBrowseService/GetItems` 的 `active_discounts[].discount_end_date`。JSON 中事件时间（例如 `discount_end`、`release_time`）统一保留 Unix 秒。Steam 当前公开响应没有权威的折扣开始时间；如果需要开始时间，只能用相关活动窗口推断，或自己长期观测价格变化。
 
 ### 高级价格增强
+
+高级价格数据来自 IsThereAnyDeal。先在 <https://isthereanydeal.com/apps/> 创建 API key，再通过 `--itad-key` 或 `STEAM_CLI_ITAD_KEY` 传入。
 
 ```bash
 STEAM_CLI_ITAD_KEY=your_key ./steam-cli price 264710 --enhanced --cc US
@@ -466,6 +470,7 @@ Similar to 264710
 Steam CLI 默认使用公开实时数据源，不需要 Steam API Key。
 
 可选的高级价格增强命令和 `--enhanced` 功能需要通过 `--itad-key` 或 `STEAM_CLI_ITAD_KEY` 提供第三方价格 API key。
+申请地址：<https://isthereanydeal.com/apps/>。
 
 | 数据源 | 用途 |
 | --- | --- |

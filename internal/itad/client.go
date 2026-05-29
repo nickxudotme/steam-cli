@@ -262,7 +262,7 @@ func (c *Client) ensureKey() error {
 	}
 	return &steam.Error{
 		Code:    steam.CodeAccessDenied,
-		Message: "missing IsThereAnyDeal API key; set --itad-key or STEAM_CLI_ITAD_KEY",
+		Message: "missing IsThereAnyDeal API key; create one at https://isthereanydeal.com/apps/ and set --itad-key or STEAM_CLI_ITAD_KEY",
 	}
 }
 

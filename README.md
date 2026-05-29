@@ -47,6 +47,8 @@ go build -o steam-cli .
 --itad-key  Advanced pricing API key. Default: STEAM_CLI_ITAD_KEY
 ```
 
+Get an IsThereAnyDeal API key from <https://isthereanydeal.com/apps/> before using `--itad-key` or `STEAM_CLI_ITAD_KEY`.
+
 `--cc auto` and `--lang auto` read your system locale, in order:
 
 1. `LC_ALL` / `LC_MESSAGES` / `LC_MONETARY` / `LANG` environment variables.
@@ -191,6 +193,8 @@ Discount ends: 2026-05-26 01:00 UTC+08:00 (UTC 2026-05-25 17:00, PT 2026-05-25 1
 The discount end time comes from `IStoreBrowseService/GetItems` field `active_discounts[].discount_end_date`. JSON keeps event times such as `discount_end` and `release_time` as Unix seconds. Steam's current public response does not expose an authoritative discount start time. A start time can only be inferred from related event windows or observed by tracking price changes over time.
 
 ### Advanced Price Enhancement
+
+Advanced pricing uses IsThereAnyDeal. Create an API key at <https://isthereanydeal.com/apps/>, then pass it with `--itad-key` or `STEAM_CLI_ITAD_KEY`.
 
 ```bash
 STEAM_CLI_ITAD_KEY=your_key ./steam-cli price 264710 --enhanced --cc US
@@ -484,6 +488,7 @@ New commands only need to use the internal `runCommand(load, render)` wrapper. J
 Steam CLI uses public, live sources by default and does not require a Steam API key.
 
 Optional advanced pricing commands and `--enhanced` features require a third-party pricing API key via `--itad-key` or `STEAM_CLI_ITAD_KEY`.
+Create one at <https://isthereanydeal.com/apps/>.
 
 | Source | Used for |
 | --- | --- |
