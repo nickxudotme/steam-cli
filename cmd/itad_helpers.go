@@ -228,7 +228,36 @@ func formatITADMoney(value *itad.Money) string {
 	if value == nil {
 		return "-"
 	}
+	if symbol, ok := currencySymbol(strings.ToUpper(value.Currency)); ok {
+		return fmt.Sprintf("%s%.2f", symbol, value.Amount)
+	}
 	return fmt.Sprintf("%.2f %s", value.Amount, value.Currency)
+}
+
+func currencySymbol(currency string) (string, bool) {
+	symbols := map[string]string{
+		"AUD": "A$",
+		"BRL": "R$",
+		"CAD": "C$",
+		"CHF": "CHF ",
+		"CLP": "CLP$",
+		"CNY": "¥",
+		"EUR": "€",
+		"GBP": "£",
+		"HKD": "HK$",
+		"JPY": "¥",
+		"KRW": "₩",
+		"MXN": "Mex$",
+		"NOK": "kr ",
+		"NZD": "NZ$",
+		"PLN": "zł ",
+		"RUB": "₽",
+		"SGD": "S$",
+		"TWD": "NT$",
+		"USD": "$",
+	}
+	symbol, ok := symbols[currency]
+	return symbol, ok
 }
 
 func formatITADDeal(value *itad.Deal) string {

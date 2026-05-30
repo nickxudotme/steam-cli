@@ -67,6 +67,34 @@ func TestCommandSourcesIncludeAdvancedPricingWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestFormatITADMoneyUsesDisplaySymbolsForKnownCurrencies(t *testing.T) {
+	tests := []struct {
+		currency string
+		want     string
+	}{
+		{currency: "CNY", want: "¥86.40"},
+		{currency: "USD", want: "$86.40"},
+		{currency: "HKD", want: "HK$86.40"},
+		{currency: "EUR", want: "€86.40"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.currency, func(t *testing.T) {
+			got := formatITADMoney(&itad.Money{Amount: 86.4, Currency: test.currency})
+			if got != test.want {
+				t.Fatalf("formatITADMoney() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestFormatITADMoneyKeepsUnknownCurrencyCode(t *testing.T) {
+	got := formatITADMoney(&itad.Money{Amount: 86.4, Currency: "XYZ"})
+	if got != "86.40 XYZ" {
+		t.Fatalf("formatITADMoney() = %q, want %q", got, "86.40 XYZ")
+	}
+}
+
 func TestBuildSaleWindowsDerivesDiscountRanges(t *testing.T) {
 	entries := []itad.HistoryEntry{
 		{
